@@ -45,9 +45,11 @@ Two details follow from how the app is used:
   both.
 - **Each block counts by its own label, repeats included.** A headline the article shows twice is
   labelled `article` both times: keeping both keeps the reader's context, and dropping one counts as
-  missing text. What the capture itself reads twice is not the page repeating itself: a link and the
-  text inside it, or the same block on two screens that overlap while scrolling. These are removed
-  before the model and the scoring, as the app does.
+  missing text. What the capture itself reads twice is not the page repeating itself:
+  - the same text twice in a row, like a link and the text inside it, counts once, as the app merges
+    them before anything else;
+  - the same blocks on two screens that overlap while scrolling are labelled `noise` the second time:
+    copying them would give the reader the same sentence twice.
 
 ## Where it starts from
 
@@ -56,14 +58,17 @@ Stack Overflow):
 
 | Approach | Complete pages | F2 | Article found | Precision |
 |---|---|---|---|---|
-| Position rules with a perfect model | 21/25 | 0.982 | 0.982 | 0.983 |
-| Position rules with Gemini Nano's real answers | 19/25 | 0.945 | 0.961 | 0.904 |
+| Position rules with a perfect model | 21/25 | 0.982 | 0.983 | 0.984 |
+| Position rules with Gemini Nano's real answers | 19/25 | 0.917 | 0.961 | 0.840 |
+| Position rules alone, keeping every block they allow | 20/25 | 0.799 | 0.937 | 0.604 |
 
-The first line is the ceiling of the rules alone: what a model that never makes a mistake would reach
-through them.
+- The first line is the ceiling of the rules: what a model that never makes a mistake would reach
+  through them. The rules miss what doesn't line up with the article, like the times of a recipe.
+- The last line is the rules without a model: they find the article's column, but keep everything
+  else in it.
+- Gemini Nano completes 19 pages, but a sixth of what it keeps is noise.
 
-These scores were measured with earlier rules, which ignored noise after the end of the article and
-counted repeated text once. Step 2 measures them again with the rules above.
+These are the Universal Copy app's own selections, saved as predictions files and scored here.
 
 ## Data
 
@@ -71,6 +76,32 @@ The 25 pages above hold the full text of copyrighted articles: they stay private
 final test set. The training and validation data are new captures of pages whose license allows
 publishing them (Wikipedia, Creative Commons sites), labelled with the help of a large model and checked
 by hand.
+
+## Usage
+
+```sh
+uv sync
+uv run pytest
+uv run smart-select score <pages.jsonl> <predictions.json>... [--details]
+```
+
+**Pages** are JSONL, one page per line, with one label per block:
+
+```json
+{"id": "lighthouse", "app": "com.android.chrome", "screen_width": 1080, "screen_height": 2400,
+ "blocks": [{"text": "A lighthouse is a tower…", "left": 42, "right": 1029, "top": 742}],
+ "labels": ["article"], "source": {"url": "https://en.wikipedia.org/wiki/Lighthouse", "license": "CC BY-SA 4.0"}}
+```
+
+**Predictions** say which blocks a system kept on each page:
+
+```json
+{"system": "Gemini Nano", "pages": {"lighthouse": [0, 3, 4]}}
+```
+
+Any system is scored the same way, whether it runs in the app, in Python or in the cloud: it only has
+to write a predictions file. `smart-select import-universal-copy <folder>` imports the pages
+labelled in Universal Copy, with the predictions its scoring test writes.
 
 ## Models
 
@@ -85,8 +116,8 @@ that sets the size of the models we can fine-tune.
 ## Plan
 
 1. ✅ The task, the metrics and the plan (this page).
-2. The dataset format, the scoring in Python, and the baselines: the position rules, and Gemini Nano's
-   recorded answers.
+2. ✅ The dataset format, the scoring in Python, and the baselines: the position rules, and Gemini
+   Nano's recorded answers. The Python scoring gives the same results as the app's, page by page.
 3. Capturing and labelling the open pages.
 4. Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
 5. Fine-tuning Ministral 3 with LoRA, and training the classifier.
