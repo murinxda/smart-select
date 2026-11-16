@@ -37,8 +37,8 @@ ACCEPT = [
     "Alle akzeptieren", "Aceptar todo", "Aceitar",
 ]
 ACCEPT_PREFIXES = ("j'accepte", "accept ", "tout accepter", "i accept", "agree")
-# In pixels, the bottom of copy mode's toolbar on a 1080 x 2400 screen
-TOOLBAR_BOTTOM = 320
+# In pixels, the height of the navigation bar at the bottom of a 1080 x 2400 screen
+NAVIGATION_BAR = 150
 
 DISMISS = ["No thanks", "Not now", "No, thanks", "Close", "Fermer", "Use without an account", "Stay signed out"]
 
@@ -89,7 +89,10 @@ class Device:
         return self.shell("screencap", "-p", binary=True)
 
     def page_pixels(self) -> bytes:
-        """The raw pixels of the screen below copy mode's toolbar, whose counter keeps changing."""
+        """The raw pixels of the lower half of the page, above the navigation bar.
+
+        Not the whole screen: harvest mode's counter keeps changing at the top, and at the end of a
+        page, sticky headers come and go there as the page bounces."""
         raw = self.shell("screencap", binary=True)
         if len(raw) < 16:
             return raw
@@ -97,7 +100,7 @@ class Device:
         height = int.from_bytes(raw[4:8], "little")
         # 4 bytes a pixel, after a header of 12 or 16 bytes depending on the Android version
         header = len(raw) - width * height * 4
-        return raw[header + TOOLBAR_BOTTOM * width * 4:]
+        return raw[header + height // 2 * width * 4:header + (height - NAVIGATION_BAR) * width * 4]
 
     def focus(self) -> str:
         return self.shell("dumpsys", "window").partition("mCurrentFocus")[2].split("\n")[0]
