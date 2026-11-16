@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# The private test set: captures holding copyrighted articles, never published
+data/private/
+
+# Downloaded and trained weights, too large for git
+models/
+adapters/
+*.safetensors
+*.gguf
+
+# Local tools
+.idea/
+.vscode/
+.DS_Store
