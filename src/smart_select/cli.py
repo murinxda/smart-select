@@ -31,6 +31,12 @@ def main(argv: list[str] | None = None) -> None:
     captures.add_argument("--serial", help="the adb serial of the emulator, when several are connected")
     captures.add_argument("--max-swipes", type=int, default=40)
 
+    batch = commands.add_parser("capture-all", help="capture every page of a sources CSV not captured yet")
+    batch.add_argument("sources", type=Path, nargs="?", default=Path("data/sources.csv"))
+    batch.add_argument("--out", type=Path, default=Path("data/raw"))
+    batch.add_argument("--serial", help="the adb serial of the emulator, when several are connected")
+    batch.add_argument("--max-swipes", type=int, default=40)
+
     score = commands.add_parser("score", help="score systems' predictions on labelled pages")
     score.add_argument("pages", type=Path, help="a JSONL file of labelled pages")
     score.add_argument("predictions", type=Path, nargs="+", help="one predictions file per system")
@@ -46,6 +52,11 @@ def main(argv: list[str] | None = None) -> None:
 
         for line in setup(Device(args.serial)):
             print(line)
+    elif args.command == "capture-all":
+        from smart_select.capture import Device, capture_all
+
+        captured, failed = capture_all(Device(args.serial), args.sources, args.out, args.max_swipes)
+        print(f"{captured} pages captured, {len(failed)} failed: {' '.join(failed) or '-'}")
     elif args.command == "capture":
         from smart_select.capture import Device, capture
 

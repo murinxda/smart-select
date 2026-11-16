@@ -14,6 +14,7 @@ to the capture, to check the labels against what the page looks like.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import html
 import json
@@ -109,6 +110,38 @@ class Device:
         return set(self.shell("ls", DEVICE_DIR).split())
 
 
+def capture_all(device: Device, sources: Path, out: Path, max_swipes: int = 40) -> tuple[int, list[str]]:
+    """Captures every page of a sources CSV (id, url, license…) not captured yet in ``out``.
+
+    A page that fails is logged and skipped: the next run tries it again. Returns how many pages were
+    captured, and the ids of those that failed.
+    """
+    with sources.open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+    captured, failed = 0, []
+    for number, row in enumerate(rows, 1):
+        if (out / f"{row['id']}.json").exists():
+            continue
+        print(f"[{number}/{len(rows)}] {row['id']}", flush=True)
+        try:
+            source = {key: row[key] for key in ("license", "source", "category", "language")}
+            path = capture(device, row["id"], row["url"], out, source, max_swipes)
+            data = json.loads(path.read_text(encoding="utf-8"))
+            end = "end" if data["reachedEnd"] else "cut"
+            print(f"  {len(data.get('harvest') or [])} blocks, {end}", flush=True)
+            captured += 1
+        except Exception as error:  # one page must not stop the others
+            print(f"  failed: {error}", flush=True)
+            failed.append(row["id"])
+        finally:
+            for _ in range(3):
+                device.shell("input", "keyevent", "KEYCODE_BACK")
+                time.sleep(1)
+            device.shell("input", "keyevent", "KEYCODE_HOME")
+            time.sleep(2)
+    return captured, failed
+
+
 def setup(device: Device) -> list[str]:
     """Prepares a device for captures, once: returns what it did."""
     done = []
@@ -156,7 +189,9 @@ def capture(device: Device, page_id: str, url: str, out: Path, source: dict[str,
     if "allow" not in device.shell("appops", "get", APP, "SYSTEM_ALERT_WINDOW"):
         raise RuntimeError(f"Universal Copy may not draw over other apps: adb shell appops set {APP} SYSTEM_ALERT_WINDOW allow")
     before = device.files()
-    device.shell("am", "start", "-a", "android.intent.action.VIEW", "-d", url, "com.android.chrome")
+    # Always the same tab: hundreds of tabs would slow Chrome down
+    device.shell("am", "start", "-a", "android.intent.action.VIEW", "-d", url,
+                 "-e", "com.android.browser.application_id", "smart-select", "com.android.chrome")
     loaded = wait_for_text(device)
     # Consent dialogs often show up a few seconds after the page
     for _ in range(2):
