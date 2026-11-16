@@ -40,8 +40,14 @@ than one that keeps some noise. The scores, in order of importance:
 
 Two details follow from how the app is used:
 
-- Noise after the end of the article doesn't count: in harvest mode, the person stops scrolling there.
-- A text the page shows twice counts once, and copying it twice counts as noise.
+- **All noise counts, wherever it is on the page.** Harvest mode stops where the person stops scrolling,
+  but auto scroll captures the whole page, the list of other articles included. The model must work for
+  both.
+- **Each block counts by its own label, repeats included.** A headline the article shows twice is
+  labelled `article` both times: keeping both keeps the reader's context, and dropping one counts as
+  missing text. What the capture itself reads twice is not the page repeating itself: a link and the
+  text inside it, or the same block on two screens that overlap while scrolling. These are removed
+  before the model and the scoring, as the app does.
 
 ## Where it starts from
 
@@ -55,6 +61,9 @@ Stack Overflow):
 
 The first line is the ceiling of the rules alone: what a model that never makes a mistake would reach
 through them.
+
+These scores were measured with earlier rules, which ignored noise after the end of the article and
+counted repeated text once. Step 2 measures them again with the rules above.
 
 ## Data
 
