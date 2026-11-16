@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> None:
     batch.add_argument("--out", type=Path, default=Path("data/raw"))
     batch.add_argument("--serial", help="the adb serial of the emulator, when several are connected")
     batch.add_argument("--max-swipes", type=int, default=40)
+    batch.add_argument("--shard", default="1/1", help="n/of: take every of-th page from the n-th, one shard an emulator")
 
     shows = commands.add_parser("show", help="print a captured page one block a line, to label it")
     shows.add_argument("id")
@@ -95,7 +96,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "capture-all":
         from smart_select.capture import Device, capture_all
 
-        captured, failed = capture_all(Device(args.serial), args.sources, args.out, args.max_swipes)
+        number, of = (int(part) for part in args.shard.split("/"))
+        captured, failed = capture_all(Device(args.serial), args.sources, args.out, args.max_swipes, (number, of))
         print(f"{captured} pages captured, {len(failed)} failed: {' '.join(failed) or '-'}")
     elif args.command == "capture":
         from smart_select.capture import Device, capture

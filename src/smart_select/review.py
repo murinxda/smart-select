@@ -23,7 +23,7 @@ from urllib.parse import unquote
 from smart_select.universal_copy import _indexes
 
 PAGE = Path(__file__).with_name("review.html")
-SAFE_SCREENSHOT = re.compile(r"^\d+\.png$")
+SAFE_SCREENSHOT = re.compile(r"^\d+\.(png|jpg)$")
 
 
 def ranges(indexes: set[int] | list[int]) -> str:
@@ -92,7 +92,7 @@ class Review:
                  "label": "article" if index in article else "optional" if index in optional else "noise"}
                 for index, block in enumerate(blocks)
             ],
-            "screenshots": sorted(path.name for path in (self.raw / page_id).glob("*.png")),
+            "screenshots": sorted(path.name for path in (self.raw / page_id).iterdir() if SAFE_SCREENSHOT.match(path.name)) if (self.raw / page_id).is_dir() else [],
         }
 
     def save(self, page_id: str, labels: list[str], checked_by: str, note: str) -> dict:
@@ -131,7 +131,7 @@ def serve(review: Review, port: int) -> ThreadingHTTPServer:
             elif len(parts) == 3 and parts[:2] == ["api", "page"] and parts[2] in sample:
                 self._json(review.page(parts[2]))
             elif len(parts) == 3 and parts[0] == "screens" and parts[1] in sample and SAFE_SCREENSHOT.match(parts[2]):
-                self._send((review.raw / parts[1] / parts[2]).read_bytes(), "image/png")
+                self._send((review.raw / parts[1] / parts[2]).read_bytes(), "image/png" if parts[2].endswith(".png") else "image/jpeg")
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
 

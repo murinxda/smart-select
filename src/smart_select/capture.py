@@ -1,7 +1,7 @@
 """Captures a web page the way Universal Copy reads it, on an Android emulator.
 
 The capture drives the real app, so the blocks are exactly what smart select will get: a debug build
-of Universal Copy saves each screen it reads, and in Scroll Mode the blocks of every screen the page
+of Universal Copy saves each screen it reads, and in harvest mode the blocks of every screen the page
 scrolls through. Needs:
 
 - an emulator (or a phone) reachable with ``adb``, with Chrome;
@@ -10,24 +10,32 @@ scrolls through. Needs:
 The page is opened in Chrome, cookie walls are accepted and popups dismissed, then copy mode starts
 and scrolls to the end of the page, like auto scroll does. A screenshot of each screen is saved next
 to the capture, to check the labels against what the page looks like.
+
+Speed matters: a page has 10 to 40 screens, and the dataset hundreds of pages. What costs time is
+``adb``: a ``uiautomator`` dump takes about 2 s, and sending a screenshot to the computer about 1 s.
+So the screen is compared on the device, by a hash of its pixels (0.2 s), screenshots are saved on
+the device as JPEG (0.2 s) and fetched once at the end, and waits stop as soon as the screen stops
+moving rather than after a fixed time. Several emulators can split the pages between them
+(``capture-all --serial … --shard 1/2``).
 """
 
 from __future__ import annotations
 
 import csv
-import hashlib
 import html
 import json
 import re
 import shlex
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 APP = "com.camel.corp.universalcopy"
 DEVICE_DIR = f"/sdcard/Android/data/{APP}/files/smart-select"
+# Screenshots are written here on the device, then fetched at the end of each page
+SCREENS_DIR = "/data/local/tmp/smart-select-screens"
 
 # Accepting cookies avoids "subscribe or accept" walls that hide the article. Notifications, sign-in
 # and app banners are refused.
@@ -38,10 +46,15 @@ ACCEPT = [
     "Alle akzeptieren", "Aceptar todo", "Aceitar",
 ]
 ACCEPT_PREFIXES = ("j'accepte", "accept ", "tout accepter", "i accept", "agree")
+DISMISS = ["No thanks", "Not now", "No, thanks", "Close", "Fermer", "Use without an account", "Stay signed out"]
+# Sites without cookie walls or popups: one check is enough
+QUIET_SITES = ("wikipedia.org", "wikivoyage.org", "wikinews.org", "wikibooks.org")
+
 # In pixels, the height of the navigation bar at the bottom of a 1080 x 2400 screen
 NAVIGATION_BAR = 150
-
-DISMISS = ["No thanks", "Not now", "No, thanks", "Close", "Fermer", "Use without an account", "Stay signed out"]
+# Where swipes start: the middle first; when the page does not move, a side, in case the middle
+# was on something that takes the swipe (a code block, a map, an embedded video)
+SWIPE_COLUMNS = (540, 990, 90)
 
 
 @dataclass(frozen=True)
@@ -55,13 +68,31 @@ class Node:
         return self.text or self.description
 
 
+@dataclass
+class Timer:
+    """How long each step of a capture took, to see where the time goes."""
+
+    steps: dict[str, float] = field(default_factory=dict)
+    start: float = field(default_factory=time.monotonic)
+
+    def lap(self, step: str) -> None:
+        now = time.monotonic()
+        self.steps[step] = self.steps.get(step, 0) + now - self.start
+        self.start = now
+
+    def __str__(self) -> str:
+        return " ".join(f"{step} {seconds:.0f}s" for step, seconds in self.steps.items()) + f", total {sum(self.steps.values()):.0f}s"
+
+
 class Device:
     def __init__(self, serial: str | None = None) -> None:
         self.adb = ["adb"] + (["-s", serial] if serial else [])
+        self._screen: tuple[int, int, int] | None = None
 
-    def shell(self, *command: str, binary: bool = False) -> str | bytes:
+    def shell(self, *command: str, binary: bool = False, raw: str | None = None) -> str | bytes:
+        """Runs a command on the device; ``raw`` is a shell line run as it is, pipes included."""
         # The device's shell reads one command line: a URL's "&" must not end it
-        line = " ".join(shlex.quote(part) for part in command)
+        line = raw if raw is not None else " ".join(shlex.quote(part) for part in command)
         try:
             result = subprocess.run(self.adb + ["exec-out", line], capture_output=True, timeout=60)
         except subprocess.TimeoutExpired:
@@ -83,63 +114,89 @@ class Device:
     def tap(self, bounds: tuple[int, int, int, int]) -> None:
         self.shell("input", "tap", str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
 
-    def swipe_up(self) -> None:
-        self.shell("input", "swipe", "540", "1900", "540", "700", "400")
+    def swipe_up(self, x: int = 540) -> None:
+        """Drags the page up by 1,400 pixels, about two thirds of the page's height on screen.
 
-    def screenshot(self) -> bytes:
-        return self.shell("screencap", "-p", binary=True)
+        A drag, not a swipe: the finger stops before it lifts, so the page does not fling on. It
+        stops sooner, and always moves by the same distance, which keeps an overlap between screens."""
+        moves = "; ".join(f"input motionevent MOVE {x} {y}" for y in (1600, 1250, 900, 550, 500))
+        self.shell(raw=f"input motionevent DOWN {x} 1900; {moves}; sleep 0.15; input motionevent UP {x} 500")
 
-    def page_pixels(self) -> bytes:
-        """The raw pixels of the lower half of the page, above the navigation bar.
+    def page_hash(self) -> str:
+        """A hash of the lower half of the screen, above the navigation bar, computed on the device.
 
         Not the whole screen: harvest mode's counter keeps changing at the top, and at the end of a
         page, sticky headers come and go there as the page bounces."""
-        raw = self.shell("screencap", binary=True)
-        if len(raw) < 16:
-            return raw
-        width = int.from_bytes(raw[0:4], "little")
-        height = int.from_bytes(raw[4:8], "little")
-        # 4 bytes a pixel, after a header of 12 or 16 bytes depending on the Android version
-        header = len(raw) - width * height * 4
-        return raw[header + height // 2 * width * 4:header + (height - NAVIGATION_BAR) * width * 4]
+        width, height, header = self.screen()
+        start = header + height // 2 * width * 4
+        length = (height - NAVIGATION_BAR - height // 2) * width * 4
+        return self.shell(raw=f"screencap | tail -c +{start + 1} | head -c {length} | md5sum").split(" ")[0]
+
+    def screen(self) -> tuple[int, int, int]:
+        """The screen's width and height in pixels, and the size of a raw screenshot's header."""
+        if self._screen is None:
+            head = self.shell(raw="screencap | head -c 16", binary=True)
+            width, height = int.from_bytes(head[0:4], "little"), int.from_bytes(head[4:8], "little")
+            # 4 bytes a pixel, after a header of 12 or 16 bytes depending on the Android version
+            size = int(self.shell(raw="screencap | wc -c").strip())
+            self._screen = (width, height, size - width * height * 4)
+        return self._screen
+
+    def save_screenshot(self, name: str) -> None:
+        """Saves a JPEG screenshot on the device, where it is quick to write: see ``fetch_screenshots``."""
+        self.shell(raw=f"mkdir -p {SCREENS_DIR} && screencap -j {SCREENS_DIR}/{name}")
+
+    def fetch_screenshots(self, folder: Path) -> None:
+        subprocess.run(self.adb + ["pull", f"{SCREENS_DIR}/.", str(folder)], capture_output=True, timeout=300)
+        self.shell(raw=f"rm -rf {SCREENS_DIR}")
 
     def focus(self) -> str:
-        return self.shell("dumpsys", "window").partition("mCurrentFocus")[2].split("\n")[0]
+        return self.shell(raw="dumpsys window | grep mCurrentFocus").partition("mCurrentFocus")[2].strip()
 
     def files(self) -> set[str]:
         return set(self.shell("ls", DEVICE_DIR).split())
 
 
-def capture_all(device: Device, sources: Path, out: Path, max_swipes: int = 40) -> tuple[int, list[str]]:
+def capture_all(device: Device, sources: Path, out: Path, max_swipes: int = 40, shard: tuple[int, int] = (1, 1)) -> tuple[int, list[str]]:
     """Captures every page of a sources CSV (id, url, license…) not captured yet in ``out``.
 
-    A page that fails is logged and skipped: the next run tries it again. Returns how many pages were
-    captured, and the ids of those that failed.
+    ``shard`` (n, of) takes every ``of``-th page starting at the n-th, so that several emulators can
+    split the pages. A page that fails is logged and skipped: the next run tries it again. Returns
+    how many pages were captured, and the ids of those that failed.
     """
     with sources.open(newline="", encoding="utf-8") as file:
         rows = list(csv.DictReader(file))
+    number, of = shard
     captured, failed = 0, []
-    for number, row in enumerate(rows, 1):
-        if (out / f"{row['id']}.json").exists():
+    for index, row in enumerate(rows):
+        if index % of != number - 1 or (out / f"{row['id']}.json").exists():
             continue
-        print(f"[{number}/{len(rows)}] {row['id']}", flush=True)
+        print(f"[{index + 1}/{len(rows)}] {row['id']}", flush=True)
         try:
             source = {key: row[key] for key in ("license", "source", "category", "language")}
-            path = capture(device, row["id"], row["url"], out, source, max_swipes)
+            timer = Timer()
+            path = capture(device, row["id"], row["url"], out, source, max_swipes, timer)
             data = json.loads(path.read_text(encoding="utf-8"))
             end = "end" if data["reachedEnd"] else "cut"
-            print(f"  {len(data.get('harvest') or [])} blocks, {end}", flush=True)
+            print(f"  {len(data.get('harvest') or [])} blocks, {data['screens']} screens, {end}; {timer}", flush=True)
             captured += 1
         except Exception as error:  # one page must not stop the others
             print(f"  failed: {error}", flush=True)
             failed.append(row["id"])
         finally:
-            for _ in range(3):
-                device.shell("input", "keyevent", "KEYCODE_BACK")
-                time.sleep(1)
-            device.shell("input", "keyevent", "KEYCODE_HOME")
-            time.sleep(2)
+            leave(device)
     return captured, failed
+
+
+def leave(device: Device) -> None:
+    """Back to the home screen, closing copy mode if it is still open."""
+    for _ in range(3):
+        if "CopyActivity" not in device.focus():
+            break
+        device.shell("input", "keyevent", "KEYCODE_BACK")
+        time.sleep(0.5)
+    device.shell("input", "keyevent", "KEYCODE_HOME")
+    time.sleep(0.5)
 
 
 def setup(device: Device) -> list[str]:
@@ -155,78 +212,81 @@ def setup(device: Device) -> list[str]:
     device.shell("settings", "put", "secure", "accessibility_enabled", "1")
     done.append("Universal Copy's accessibility service is on")
     device.shell("appops", "set", APP, "SYSTEM_ALERT_WINDOW", "allow")
-    done.append("Universal Copy may draw over other apps, which Scroll Mode needs")
+    done.append("Universal Copy may draw over other apps, which harvest mode needs")
+    # Without animations, screens settle sooner, and a still screen means the page has stopped
+    for setting in ("window_animation_scale", "transition_animation_scale", "animator_duration_scale"):
+        device.shell("settings", "put", "global", setting, "0")
+    done.append("Animations are off")
+    # Not a flag Chrome reads from its command line on Play images: a setting to change by hand
+    done.append("Once per emulator, by hand: Chrome › Settings › Languages › turn off \"Offer to send pages "
+                "in other languages to Google Translate\", or a \"Translate page?\" bar ends up in the captures")
     return done
 
 
-def accept_cookies(device: Device) -> None:
-    for _ in range(2):
-        nodes = device.nodes()
-        # An exact button name first: a heading can also start with "Accept"
-        found = next((node for node in nodes if node.label in ACCEPT), None) or next(
-            (node for node in nodes if len(node.label) < 80 and node.label.lower() != "accepted"
-             and node.label.lower().startswith(ACCEPT_PREFIXES)), None)
-        if not found:
-            return
-        print(f"  accept cookies: {found.label}")
+def handle_popups(device: Device) -> bool:
+    """Accepts a cookie wall or dismisses a popup, if one is on screen: returns whether it did."""
+    nodes = device.nodes()
+    # An exact button name first: a heading can also start with "Accept"
+    found = next((node for node in nodes if node.label in ACCEPT), None) or next(
+        (node for node in nodes if len(node.label) < 80 and node.label.lower() != "accepted"
+         and node.label.lower().startswith(ACCEPT_PREFIXES)), None)
+    found = found or next((node for node in nodes if node.text in DISMISS or node.description in DISMISS), None)
+    if found:
+        print(f"  tap: {found.label}")
         device.tap(found.bounds)
-        time.sleep(3)
+        time.sleep(1.5)
+    return found is not None
 
 
-def dismiss_popups(device: Device) -> None:
-    for _ in range(3):
-        found = next((node for node in device.nodes() if node.text in DISMISS or node.description in DISMISS), None)
-        if not found:
-            return
-        print(f"  dismiss: {found.label}")
-        device.tap(found.bounds)
-        time.sleep(2)
-
-
-def capture(device: Device, page_id: str, url: str, out: Path, source: dict[str, str], max_swipes: int = 40) -> Path:
+def capture(device: Device, page_id: str, url: str, out: Path, source: dict[str, str], max_swipes: int = 40,
+            timer: Timer | None = None) -> Path:
     """Captures ``url`` into ``out/<page_id>.json``, with its screenshots in ``out/<page_id>/``."""
-    # Without it, Scroll Mode opens the permission's settings instead of scrolling the page
+    timer = timer or Timer()
+    # Without it, harvest mode opens the permission's settings instead of scrolling the page
     if "allow" not in device.shell("appops", "get", APP, "SYSTEM_ALERT_WINDOW"):
         raise RuntimeError(f"Universal Copy may not draw over other apps: adb shell appops set {APP} SYSTEM_ALERT_WINDOW allow")
     before = device.files()
+    device.shell(raw=f"rm -rf {SCREENS_DIR}")
     # Always the same tab: hundreds of tabs would slow Chrome down
     device.shell("am", "start", "-a", "android.intent.action.VIEW", "-d", url,
                  "-e", "com.android.browser.application_id", "smart-select", "com.android.chrome")
     loaded = wait_for_text(device)
-    # Consent dialogs often show up a few seconds after the page
-    for _ in range(2):
-        accept_cookies(device)
-        dismiss_popups(device)
-        time.sleep(3)
+    timer.lap("load")
+    # Consent dialogs often show up a few seconds after the page: check again, except on sites
+    # known to have none. Several popups can follow one another.
+    for attempt in range(1 if any(site in url for site in QUIET_SITES) else 3):
+        if not handle_popups(device) and attempt > 0:
+            break
+        if attempt == 0 and not any(site in url for site in QUIET_SITES):
+            time.sleep(2)
+    timer.lap("popups")
     # Copy mode reads whatever is in front: anything but the page would make a wrong capture
     if not loaded or "com.android.chrome" not in device.focus():
-        raise RuntimeError(f"the page is not on screen: {device.focus().strip()}")
+        raise RuntimeError(f"the page is not on screen: {device.focus()}")
 
     device.shell("am", "start", "-n", f"{APP}/.StartCopyModeActivity")
-    if not wait_until(lambda: "CopyActivity" in device.focus(), timeout=45):
+    if not wait_until(lambda: "CopyActivity" in device.focus(), timeout=45, interval=0.5):
         raise RuntimeError("copy mode did not open")
+    timer.lap("copy mode")
 
     screens = out / page_id
     screens.mkdir(parents=True, exist_ok=True)
-    reached_end = scroll_to_end(device, screens, max_swipes)
+    count, reached_end = scroll_to_end(device, max_swipes, timer)
 
-    new = sorted(device.files() - before)
-    if not new:
+    # The harvest is saved when harvest mode stops
+    if not wait_until(lambda: device.files() - before, timeout=30, interval=0.5):
         raise RuntimeError("Universal Copy saved no capture: is it a debug build?")
+    new = sorted(device.files() - before)
     data = json.loads(device.shell("cat", f"{DEVICE_DIR}/{new[-1]}"))
-    data.update(name=page_id, url=url, source=dict(source, url=url), reachedEnd=reached_end)
+    data.update(name=page_id, url=url, source=dict(source, url=url), reachedEnd=reached_end, screens=count)
     path = out / f"{page_id}.json"
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-
-    for _ in range(3):
-        if "CopyActivity" not in device.focus():
-            break
-        device.shell("input", "keyevent", "KEYCODE_BACK")
-        time.sleep(1.5)
+    device.fetch_screenshots(screens)
+    timer.lap("save")
     return path
 
 
-def wait_until(condition: Callable[[], bool], timeout: float, interval: float = 2) -> bool:
+def wait_until(condition: Callable[[], object], timeout: float, interval: float = 2) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if condition():
@@ -237,54 +297,80 @@ def wait_until(condition: Callable[[], bool], timeout: float, interval: float = 
 
 def wait_for_text(device: Device, timeout: float = 60, enough: int = 15) -> bool:
     """Waits until the screen shows some text: a page still loading would give an empty capture."""
-    loaded = wait_until(lambda: sum(1 for node in device.nodes() if len(node.label) > 3) >= enough, timeout)
-    if loaded:
-        time.sleep(2)
-    return loaded
+    return wait_until(lambda: sum(1 for node in device.nodes() if len(node.label) > 3) >= enough, timeout, interval=0.5)
 
 
-def scroll_to_end(device: Device, screens: Path, max_swipes: int) -> bool:
-    """Scrolls in harvest mode until the page stops moving, saving each screen. Returns whether it
-    reached the end before ``max_swipes``.
+def settle(device: Device, timeout: float = 4) -> str:
+    """Waits until the page stops moving, and returns the hash of its pixels."""
+    previous, deadline = device.page_hash(), time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.25)
+        current = device.page_hash()
+        if current == previous:
+            return current
+        previous = current
+    return previous
+
+
+def scroll_to_end(device: Device, max_swipes: int, timer: Timer | None = None) -> tuple[int, bool]:
+    """Scrolls in harvest mode until the page stops moving, saving each screen. Returns how many
+    screens it saw, and whether it reached the end before ``max_swipes``.
 
     Harvest mode, unlike the Scroll Mode button whose behavior follows the app's settings, always
-    selects everything and reads the screen again after each scroll."""
-    def find(label: str) -> Node | None:
-        return next((node for node in device.nodes() if node.label == label), None)
+    selects everything and reads the screen again after each scroll. The end of the page is when a
+    swipe leaves the page where it was, with swipes from the middle and from both sides: a swipe on
+    a code block or a map can be taken by it instead of the page."""
+    found: dict[str, Node] = {}
+
+    def toolbar() -> bool:
+        # One dump for both buttons: each takes about 2 s
+        found.clear()
+        found.update((node.label, node) for node in device.nodes() if node.label in ("Harvest mode", "More options"))
+        return bool(found)
 
     # The toolbar slides in once the zones are drawn; the entry is an icon, or in the overflow menu
-    if not wait_until(lambda: find("Harvest mode") or find("More options"), timeout=30):
+    if not wait_until(toolbar, timeout=30, interval=0.5):
         raise RuntimeError("no toolbar in copy mode")
-    if not find("Harvest mode"):
-        device.tap(find("More options").bounds)
-        time.sleep(2)
-    harvest = find("Harvest mode")
+    harvest = found.get("Harvest mode")
+    if harvest is None:
+        device.tap(found["More options"].bounds)
+        time.sleep(1)
+        harvest = next((node for node in device.nodes() if node.label == "Harvest mode"), None)
     if harvest is None:
         raise RuntimeError("no Harvest mode in copy mode's menu")
     device.tap(harvest.bounds)
-    time.sleep(3)
+    time.sleep(1.5)
+    timer = timer or Timer()
+    timer.lap("harvest start")
 
-    previous, reached_end = None, False
-    for index in range(max_swipes + 1):
-        # uiautomator doesn't see the page under harvest mode's overlay: its pixels do
-        page = hashlib.sha1(device.page_pixels()).hexdigest()
-        if page == previous:
+    page, screens, reached_end = settle(device), 0, False
+    while True:
+        device.save_screenshot(f"{screens:02d}.jpg")
+        timer.lap("screenshots")
+        screens += 1
+        if screens > max_swipes:
+            break
+        moved = False
+        for column in SWIPE_COLUMNS:
+            device.swipe_up(column)
+            timer.lap("swipes")
+            # Harvest mode reads the screen once it has stopped
+            current = settle(device)
+            timer.lap("settle")
+            if current != page:
+                page, moved = current, True
+                break
+        if not moved:
             reached_end = True
             break
-        previous = page
-        (screens / f"{index:02d}.png").write_bytes(device.screenshot())
-        if index < max_swipes:
-            device.swipe_up()
-            time.sleep(1.8)
+    # Harvest mode reads the last screen before it stops
+    time.sleep(0.5)
 
-    # The stop button, at the top right, ends Scroll Mode and saves the harvest
+    # The stop button, at the top right, ends harvest mode and saves the harvest
     stop = next((node.bounds for node in device.nodes()
                  if node.bounds[1] < 300 and node.bounds[0] > 900 and node.bounds[2] - node.bounds[0] < 200),
                 (920, 170, 1020, 270))
     device.tap(stop)
-    for _ in range(10):
-        time.sleep(2)
-        if "CopyActivity" in device.focus():
-            break
-    time.sleep(3)
-    return reached_end
+    wait_until(lambda: "CopyActivity" in device.focus(), timeout=20, interval=0.5)
+    timer.lap("harvest stop")
+    return screens, reached_end
