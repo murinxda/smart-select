@@ -51,6 +51,23 @@ Two details follow from how the app is used:
   - the same blocks on two screens that overlap while scrolling are labelled `noise` the second time:
     copying them would give the reader the same sentence twice.
 
+## How the app selects today
+
+Universal Copy combines Gemini Nano with **position rules**, which use where each block sits on screen:
+
+1. **First pass:** the model reads the whole page, in batches, and says which blocks to keep.
+2. **The article's column:** the left edge that lines up most of the kept text. Ads and other articles
+   rarely share it: they are indented, wider, or in a side column.
+3. **Second pass:** the model is asked again, only about the column, plus what belongs to it without
+   lining up: the headline just before it, pieces of a sentence split by links, a slightly indented box.
+4. **Repairs:** a piece of a sentence or a long paragraph the model dropped between kept lines comes
+   back. What the first pass kept inside the article comes back too, but only next to kept text: an
+   ad between two paragraphs stands among blocks nobody kept.
+
+The rules have the last word: a block outside the column never reaches the selection, whatever the
+model said. They exist because Gemini Nano is not trained for this task, and on its own keeps ads,
+menus and lists of other articles. They are a safety net, and a net also catches some good blocks.
+
 ## Where it starts from
 
 Measured in Universal Copy on 25 labelled pages (news in French and English, Wikipedia, recipes, docs,
@@ -63,7 +80,8 @@ Stack Overflow):
 | Position rules alone, keeping every block they allow | 20/25 | 0.799 | 0.937 | 0.604 |
 
 - The first line is the ceiling of the rules: what a model that never makes a mistake would reach
-  through them. The rules miss what doesn't line up with the article, like the times of a recipe.
+  through them. The rules miss what doesn't line up with the article: the times of a recipe in two
+  columns, a list item after a cookie banner, a link placed after its sentence.
 - The last line is the rules without a model: they find the article's column, but keep everything
   else in it.
 - Gemini Nano completes 19 pages, but a sixth of what it keeps is noise.
@@ -109,6 +127,11 @@ labelled in Universal Copy, with the predictions its scoring test writes.
   numbers of the blocks to keep. Apache 2.0, so the weights can ship in the app.
 - **A small multilingual text classifier** that scores each block: the cheapest to run on a phone.
 - **Mistral Small 4** for help with labelling, and as the cloud option.
+
+Each model is benchmarked two ways: **alone**, reading the positions of the blocks and deciding
+everything, and **inside the app's rules**, as it would plug into Universal Copy today. A model trained
+for the task may not need the safety net: if it does better alone, the rules can go, and with them their
+ceiling.
 
 Training runs on a MacBook Pro M1 Pro with 16 GB of memory, with [MLX](https://github.com/ml-explore/mlx):
 that sets the size of the models we can fine-tune.
