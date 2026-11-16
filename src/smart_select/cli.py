@@ -46,6 +46,15 @@ def main(argv: list[str] | None = None) -> None:
     builds.add_argument("--labels", type=Path, default=Path("data/labels"))
     builds.add_argument("--out", type=Path, default=Path("data/open"))
 
+    reviews = commands.add_parser("review", help="check a random sample of labelled pages by hand, in the browser")
+    reviews.add_argument("--size", type=int, default=25, help="how many pages to check")
+    reviews.add_argument("--seed", type=int, default=0)
+    reviews.add_argument("--port", type=int, default=8765)
+    reviews.add_argument("--raw", type=Path, default=Path("data/raw"))
+    reviews.add_argument("--labels", type=Path, default=Path("data/labels"))
+    reviews.add_argument("--sample", type=Path, default=Path("data/review-sample.json"), help="where the sample is kept")
+    reviews.add_argument("--summary", action="store_true", help="only print how many blocks the reviewer changed")
+
     score = commands.add_parser("score", help="score systems' predictions on labelled pages")
     score.add_argument("pages", type=Path, help="a JSONL file of labelled pages")
     score.add_argument("predictions", type=Path, nargs="+", help="one predictions file per system")
@@ -70,6 +79,19 @@ def main(argv: list[str] | None = None) -> None:
 
         train, validation, unlabelled = build(args.raw, args.labels, args.out)
         print(f"{len(train)} training pages, {len(validation)} validation pages, {len(unlabelled)} captures not labelled yet")
+    elif args.command == "review":
+        from smart_select.review import Review, serve, summary
+
+        if args.summary:
+            print(summary(args.labels))
+            return
+        review = Review(args.raw, args.labels, args.sample, args.size, args.seed)
+        server = serve(review, args.port)
+        print(f"Reviewing {len(review.sample)} pages at http://127.0.0.1:{args.port}/  (Ctrl+C to stop)", flush=True)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print("\n" + summary(args.labels))
     elif args.command == "capture-all":
         from smart_select.capture import Device, capture_all
 

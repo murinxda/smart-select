@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Label review</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e2e2dc;
+    --article: #1f7a4d; --article-bg: #e3f3ea; --optional: #9a6700; --optional-bg: #fbf0d6;
+    --noise: #8a8a84; --noise-bg: #f0f0ec; --accent: #3b5bdb; --selected: #dbe4ff; --changed: #d9480f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecece8; --muted: #9a9a93; --line: #34342f;
+      --article: #69db9c; --article-bg: #1c3527; --optional: #ffd166; --optional-bg: #3a3018;
+      --noise: #8a8a84; --noise-bg: #262624; --accent: #91a7ff; --selected: #26315c; --changed: #ff8a5c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+  header { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+           padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  select, input, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+                          border-radius: 6px; padding: 5px 8px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .muted { color: var(--muted); }
+  .legend span { display: inline-block; padding: 1px 8px; border-radius: 10px; margin-right: 4px; font-size: 12px; }
+  main { display: grid; grid-template-columns: minmax(260px, 380px) 1fr; gap: 16px; padding: 16px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } .shots { max-height: 50vh; } }
+  .shots { position: sticky; top: 64px; max-height: calc(100vh - 80px); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .shots img { width: 100%; border: 1px solid var(--line); border-radius: 6px; }
+  .shots figcaption { font-size: 12px; color: var(--muted); }
+  .info { margin-bottom: 10px; }
+  .info a { color: var(--accent); word-break: break-all; }
+  .blocks { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .block { display: grid; grid-template-columns: 44px 84px 1fr; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line);
+           cursor: pointer; user-select: none; }
+  .block:last-child { border-bottom: 0; }
+  .block.selected { background: var(--selected); }
+  .block .index { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+  .block .where { color: var(--muted); font-size: 11px; display: block; }
+  .chip { font-size: 12px; border-radius: 10px; padding: 1px 8px; text-align: center; height: fit-content; }
+  .article .chip, .legend .article { background: var(--article-bg); color: var(--article); }
+  .optional .chip, .legend .optional { background: var(--optional-bg); color: var(--optional); }
+  .noise .chip, .legend .noise { background: var(--noise-bg); color: var(--noise); }
+  .noise .text { color: var(--muted); }
+  .block.changed .index::before { content: "● "; color: var(--changed); }
+  .text { white-space: pre-wrap; word-break: break-word; }
+  .help { font-size: 12px; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font-size: 11px; }
+  .status { margin-left: auto; }
+  textarea { width: 100%; font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Label review</h1>
+  <button id="prev" title="Previous page">←</button>
+  <select id="pages" aria-label="Page"></select>
+  <button id="next" title="Next page">→</button>
+  <span class="legend"><span class="article">article</span><span class="optional">optional</span><span class="noise">noise</span></span>
+  <span class="status muted" id="status"></span>
+</header>
+<main>
+  <section class="shots" id="shots" aria-label="Screenshots"></section>
+  <section>
+    <div class="info" id="info"></div>
+    <p class="help muted">
+      Click a block to select it, <kbd>Shift</kbd>+click to select a range, then press
+      <kbd>a</kbd> article, <kbd>o</kbd> optional or <kbd>n</kbd> noise. Clicking a label cycles it.
+      <kbd>j</kbd>/<kbd>k</kbd> move the selection. Blocks you changed are marked ●.
+    </p>
+    <div class="blocks" id="blocks"></div>
+    <p>
+      <label class="muted" for="note">Note (optional): what was wrong, if anything</label>
+      <textarea id="note" rows="2"></textarea>
+    </p>
+    <p>
+      <label class="muted" for="reviewer">Checked by</label>
+      <input id="reviewer" placeholder="your name or initials">
+      <button class="primary" id="approve">Approve page and go to next</button>
+    </p>
+  </section>
+</main>
+<script>
+const LABELS = ["article", "optional", "noise"];
+let pages = [], page = null, labels = [], draft = [], selection = new Set(), anchor = null;
+const $ = (id) => document.getElementById(id);
+
+function remembered(key, fallback) { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } }
+function remember(key, value) { try { localStorage.setItem(key, value); } catch {} }
+
+async function loadPages(current) {
+  pages = await (await fetch("/api/pages")).json();
+  $("pages").innerHTML = pages.map((p, i) =>
+    `<option value="${p.id}">${p.checked_by ? "✓" : "·"} ${i + 1}. ${p.id}</option>`).join("");
+  const done = pages.filter((p) => p.checked_by).length;
+  $("status").textContent = `${done} of ${pages.length} pages checked`;
+  const first = current || location.hash.slice(1) || (pages.find((p) => !p.checked_by) || pages[0]).id;
+  $("pages").value = first;
+  await open(first);
+}
+
+async function open(id) {
+  page = await (await fetch(`/api/page/${encodeURIComponent(id)}`)).json();
+  labels = page.blocks.map((b) => b.label);
+  draft = [...labels];
+  selection = new Set(); anchor = null;
+  location.hash = id;
+  $("pages").value = id;
+  $("note").value = "";
+  $("info").innerHTML = `<strong>${page.id}</strong> · ${page.blocks.length} blocks ·
+    ${page.reached_end ? "reached the end of the page" : "<strong>cut</strong> before the end"} ·
+    ${page.license || ""}<br><a href="${page.url}" target="_blank" rel="noopener">${page.url}</a>
+    ${page.checked_by ? `<br><span class="muted">Already checked by ${page.checked_by}: approving again replaces that review.</span>` : ""}`;
+  $("shots").innerHTML = page.screenshots.map((name, i) =>
+    `<figure style="margin:0"><img loading="lazy" src="/screens/${page.id}/${name}" alt="Screen ${i + 1}">
+     <figcaption>Screen ${i + 1} of ${page.screenshots.length}</figcaption></figure>`).join("")
+    || `<p class="muted">No screenshots for this page.</p>`;
+  render();
+  window.scrollTo(0, 0);
+}
+
+function render() {
+  $("blocks").innerHTML = page.blocks.map((b, i) => `
+    <div class="block ${labels[i]} ${selection.has(i) ? "selected" : ""} ${labels[i] !== draft[i] ? "changed" : ""}" data-i="${i}">
+      <span class="index">${i}</span>
+      <span class="chip" data-chip="${i}">${labels[i]}</span>
+      <span><span class="text"></span><span class="where">left ${b.left} · top ${b.top}</span></span>
+    </div>`).join("");
+  // Text goes in with textContent: page text is data, never markup
+  document.querySelectorAll(".block .text").forEach((el, i) => { el.textContent = page.blocks[i].text; });
+}
+
+function select(i, extend) {
+  if (extend && anchor !== null) {
+    const [from, to] = [Math.min(anchor, i), Math.max(anchor, i)];
+    selection = new Set(Array.from({ length: to - from + 1 }, (_, k) => from + k));
+  } else {
+    selection = new Set([i]); anchor = i;
+  }
+  render();
+}
+
+function setLabel(label) {
+  selection.forEach((i) => { labels[i] = label; });
+  render();
+}
+
+$("blocks").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-chip]");
+  if (chip) {
+    const i = Number(chip.dataset.chip);
+    labels[i] = LABELS[(LABELS.indexOf(labels[i]) + 1) % LABELS.length];
+    render();
+    return;
+  }
+  const row = event.target.closest(".block");
+  if (row) select(Number(row.dataset.i), event.shiftKey);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) || !page) return;
+  const keys = { a: "article", o: "optional", n: "noise" };
+  if (keys[event.key]) { setLabel(keys[event.key]); event.preventDefault(); }
+  if (event.key === "j" || event.key === "k") {
+    const last = anchor ?? -1;
+    const next = Math.max(0, Math.min(page.blocks.length - 1, last + (event.key === "j" ? 1 : -1)));
+    select(next, event.shiftKey);
+    document.querySelector(`.block[data-i="${next}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+});
+
+function step(delta) {
+  const i = pages.findIndex((p) => p.id === page.id);
+  const next = pages[(i + delta + pages.length) % pages.length];
+  if (next) open(next.id);
+}
+$("prev").onclick = () => step(-1);
+$("next").onclick = () => step(1);
+$("pages").onchange = (event) => open(event.target.value);
+$("reviewer").value = remembered("reviewer", "");
+
+$("approve").onclick = async () => {
+  const reviewer = $("reviewer").value.trim();
+  if (!reviewer) { $("reviewer").focus(); $("status").textContent = "Enter who checked the page first"; return; }
+  remember("reviewer", reviewer);
+  const response = await fetch(`/api/page/${encodeURIComponent(page.id)}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ labels, checked_by: reviewer, note: $("note").value }),
+  });
+  if (!response.ok) { $("status").textContent = `Not saved: ${response.status} ${response.statusText}`; return; }
+  const saved = await response.json();
+  const i = pages.findIndex((p) => p.id === page.id);
+  const next = pages.slice(i + 1).find((p) => !p.checked_by) || pages.find((p) => !p.checked_by && p.id !== page.id);
+  await loadPages(next ? next.id : page.id);
+  $("status").textContent += ` · saved ${pages[i].id} (${saved.changed} blocks changed)`;
+};
+
+loadPages();
+</script>
+</body>
+</html>
