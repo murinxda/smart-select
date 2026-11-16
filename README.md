@@ -148,7 +148,7 @@ that sets the size of the models we can fine-tune.
 1. ✅ The task, the metrics and the plan (this page).
 2. ✅ The dataset format, the scoring in Python, and the baselines: the position rules, and Gemini
    Nano's recorded answers. The Python scoring gives the same results as the app's, page by page.
-3. Capturing and labelling the open pages: 129 pages labelled, a sample of 25 to check by hand.
+3. Capturing and labelling the open pages, again since Universal Copy joins Wikipedia's paragraphs better.
 4. Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
 5. Fine-tuning Ministral 3 with LoRA, and training the classifier.
 6. The benchmark: every approach on the private test set.
