@@ -37,6 +37,15 @@ def main(argv: list[str] | None = None) -> None:
     batch.add_argument("--serial", help="the adb serial of the emulator, when several are connected")
     batch.add_argument("--max-swipes", type=int, default=40)
 
+    shows = commands.add_parser("show", help="print a captured page one block a line, to label it")
+    shows.add_argument("id")
+    shows.add_argument("--raw", type=Path, default=Path("data/raw"))
+
+    builds = commands.add_parser("build-dataset", help="combine captures and labels into the training and validation sets")
+    builds.add_argument("--raw", type=Path, default=Path("data/raw"))
+    builds.add_argument("--labels", type=Path, default=Path("data/labels"))
+    builds.add_argument("--out", type=Path, default=Path("data/open"))
+
     score = commands.add_parser("score", help="score systems' predictions on labelled pages")
     score.add_argument("pages", type=Path, help="a JSONL file of labelled pages")
     score.add_argument("predictions", type=Path, nargs="+", help="one predictions file per system")
@@ -52,6 +61,15 @@ def main(argv: list[str] | None = None) -> None:
 
         for line in setup(Device(args.serial)):
             print(line)
+    elif args.command == "show":
+        from smart_select.open_dataset import show
+
+        print(show(args.raw / f"{args.id}.json"))
+    elif args.command == "build-dataset":
+        from smart_select.open_dataset import build
+
+        train, validation, unlabelled = build(args.raw, args.labels, args.out)
+        print(f"{len(train)} training pages, {len(validation)} validation pages, {len(unlabelled)} captures not labelled yet")
     elif args.command == "capture-all":
         from smart_select.capture import Device, capture_all
 

@@ -14,15 +14,19 @@ from pathlib import Path
 from smart_select.dataset import Block, Label, Page
 
 
-def read_capture(path: Path, source: dict[str, str]) -> Page | None:
-    """The labelled page in a capture file, or None if it has no labels yet."""
+def read_capture(path: Path, source: dict[str, str], labels: dict[str, str] | None = None) -> Page | None:
+    """The labelled page in a capture file, or None if it has no labels yet.
+
+    :param labels: ranges of block indexes, when they are not in the capture itself
+    """
     data = json.loads(path.read_text(encoding="utf-8"))
-    if "labels" not in data:
+    labels = labels if labels is not None else data.get("labels")
+    if labels is None:
         return None
     # The harvest holds every screen of the page; a single screen otherwise
     blocks = data.get("harvest") or data["screen"]
-    article = _indexes(data["labels"].get("article", ""))
-    optional = _indexes(data["labels"].get("optional", ""))
+    article = _indexes(labels.get("article", ""))
+    optional = _indexes(labels.get("optional", ""))
 
     def label(index: int) -> Label:
         return "article" if index in article else "optional" if index in optional else "noise"
@@ -34,7 +38,7 @@ def read_capture(path: Path, source: dict[str, str]) -> Page | None:
         screen_height=data.get("screenHeight"),
         blocks=[Block(block["text"], block["left"], block["right"], block["top"]) for block in blocks],
         labels=[label(index) for index in range(len(blocks))],
-        source=dict(source, **({"url": data["url"]} if "url" in data else {})),
+        source=dict(data.get("source", {}), **source, **({"url": data["url"]} if "url" in data else {})),
     )
 
 
