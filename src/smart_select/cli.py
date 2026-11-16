@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from smart_select import universal_copy
@@ -19,6 +20,17 @@ def main(argv: list[str] | None = None) -> None:
     imports.add_argument("--out", type=Path, default=Path("data/private"), help="where to write test.jsonl")
     imports.add_argument("--license", default="private", help="the license of the captured pages")
 
+    setup = commands.add_parser("setup-device", help="prepare an emulator with Universal Copy's debug build for captures")
+    setup.add_argument("--serial", help="the adb serial of the emulator, when several are connected")
+
+    captures = commands.add_parser("capture", help="capture a web page as Universal Copy reads it, on an emulator")
+    captures.add_argument("id", help="the page's id, used for its file names")
+    captures.add_argument("url")
+    captures.add_argument("--license", required=True, help="the license of the page's content, like CC BY-SA 4.0")
+    captures.add_argument("--out", type=Path, default=Path("data/raw"))
+    captures.add_argument("--serial", help="the adb serial of the emulator, when several are connected")
+    captures.add_argument("--max-swipes", type=int, default=40)
+
     score = commands.add_parser("score", help="score systems' predictions on labelled pages")
     score.add_argument("pages", type=Path, help="a JSONL file of labelled pages")
     score.add_argument("predictions", type=Path, nargs="+", help="one predictions file per system")
@@ -29,6 +41,18 @@ def main(argv: list[str] | None = None) -> None:
         pages, predictions = universal_copy.import_folder(args.samples, args.out, {"license": args.license})
         write_pages(pages, args.out / "test.jsonl")
         print(f"{len(pages)} pages written to {args.out / 'test.jsonl'}, {len(predictions)} predictions files copied")
+    elif args.command == "setup-device":
+        from smart_select.capture import Device, setup
+
+        for line in setup(Device(args.serial)):
+            print(line)
+    elif args.command == "capture":
+        from smart_select.capture import Device, capture
+
+        path = capture(Device(args.serial), args.id, args.url, args.out, {"license": args.license}, args.max_swipes)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        end = "reached the end" if data["reachedEnd"] else f"stopped after {args.max_swipes} swipes"
+        print(f"{path}: {len(data['screen'])} blocks on screen, {len(data.get('harvest') or [])} harvested, {end}")
     else:
         pages = read_pages(args.pages)
         summaries = []

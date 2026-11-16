@@ -9,6 +9,9 @@ build/
 # The private test set: captures holding copyrighted articles, never published
 data/private/
 
+# Raw captures and their screenshots, before labelling
+data/raw/
+
 # Downloaded and trained weights, too large for git
 models/
 adapters/
