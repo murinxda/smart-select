@@ -54,6 +54,11 @@ QUIET_SITES = ("wikipedia.org", "wikivoyage.org", "wikinews.org", "wikibooks.org
 NAVIGATION_BAR = 150
 # In pixels, harvest mode's stop button on a 1080 x 2400 screen
 STOP_BUTTON = (920, 170, 1020, 270)
+# Where the page starts below harvest mode's bar
+HARVEST_BAR_BOTTOM = 300
+# The height of the bands compared to tell a page that scrolls from a map that pans: a map would
+# need to be taller than the screen less two bands to cover both
+BAND = 400
 # Where drags start, (x, y): the left of the text column first, then the middle and the right side
 # when the page does not move, then the same higher on the screen. Not the middle first: a map in an
 # infobox, on the right half, pans under the drag instead of the page, and the screen changing looks
@@ -130,15 +135,20 @@ class Device:
         moves = "; ".join(f"input motionevent MOVE {x} {step}" for step in steps)
         self.shell(raw=f"input motionevent DOWN {x} {y}; {moves}; sleep 0.15; input motionevent UP {x} {end}")
 
-    def page_hash(self) -> str:
-        """A hash of the lower half of the screen, above the navigation bar, computed on the device.
+    def page_hash(self) -> tuple[str, str]:
+        """Hashes of a band at the top and one at the bottom of the page on screen, below harvest
+        mode's bar and above the navigation bar, computed on the device.
 
-        Not the whole screen: harvest mode's counter keeps changing at the top, and at the end of a
-        page, sticky headers come and go there as the page bounces."""
+        Not the bar: harvest mode's counter keeps changing there. Two bands far apart: a map or a
+        carousel under the finger pans in one of them at most, a page that scrolls moves both."""
         width, height, header = self.screen()
-        start = header + height // 2 * width * 4
-        length = (height - NAVIGATION_BAR - height // 2) * width * 4
-        return self.shell(raw=f"screencap | tail -c +{start + 1} | head -c {length} | md5sum").split(" ")[0]
+
+        def band(top: int, bottom: int) -> str:
+            start, length = header + top * width * 4, (bottom - top) * width * 4
+            return self.shell(raw=f"screencap | tail -c +{start + 1} | head -c {length} | md5sum").split(" ")[0]
+
+        bottom = height - NAVIGATION_BAR
+        return band(HARVEST_BAR_BOTTOM, HARVEST_BAR_BOTTOM + BAND), band(bottom - BAND, bottom)
 
     def screen(self) -> tuple[int, int, int]:
         """The screen's width and height in pixels, and the size of a raw screenshot's header."""
@@ -352,7 +362,7 @@ def wait_for_text(device: Device, timeout: float = 60, enough: int = 15) -> bool
     return wait_until(lambda: sum(1 for node in device.nodes() if len(node.label) > 3) >= enough, timeout, interval=0.5)
 
 
-def settle(device: Device, timeout: float = 4) -> str:
+def settle(device: Device, timeout: float = 4) -> tuple[str, str]:
     """Waits until the page stops moving, and returns the hash of its pixels."""
     previous, deadline = device.page_hash(), time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -409,7 +419,8 @@ def scroll_to_end(device: Device, max_swipes: int, timer: Timer | None = None) -
             # Harvest mode reads the screen once it has stopped
             current = settle(device)
             timer.lap("settle")
-            if current != page:
+            # Both halves: a map swallows every drag that starts on it, and pans
+            if current[0] != page[0] and current[1] != page[1]:
                 page, moved = current, True
                 break
         if not moved:
