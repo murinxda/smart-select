@@ -122,7 +122,8 @@ to write a predictions file. `smart-select import-universal-copy <folder>` impor
 labelled in Universal Copy, with the predictions its scoring test writes.
 
 **Checking labels.** The open pages' labels were drafted by Claude, following
-[the labelling guide](docs/labelling.md). `uv run smart-select review` opens a local page to check a
+[the labelling guide](docs/labelling.md): block by block, and by rules for the long Q&A and docs
+pages. `uv run smart-select review` opens a local page to check a
 random sample of them, taken from every site: the screenshots of the page on one side, its blocks
 coloured by label on the other. Approving a page saves who checked it and how many blocks they
 changed from the draft; `smart-select review --summary` adds those up, which says how far the drafts
@@ -148,7 +149,7 @@ that sets the size of the models we can fine-tune.
 1. ✅ The task, the metrics and the plan (this page).
 2. ✅ The dataset format, the scoring in Python, and the baselines: the position rules, and Gemini
    Nano's recorded answers. The Python scoring gives the same results as the app's, page by page.
-3. Capturing and labelling the open pages, again since Universal Copy joins Wikipedia's paragraphs better.
+3. Capturing and labelling the open pages: 145 pages, 105 for training and 40 for validation; a sample of 25 to check by hand.
 4. Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
 5. Fine-tuning Ministral 3 with LoRA, and training the classifier.
 6. The benchmark: every approach on the private test set.

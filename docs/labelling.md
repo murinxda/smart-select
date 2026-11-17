@@ -57,3 +57,11 @@ Each block is labelled for itself, repeats included:
 - **Q&A (Stack Exchange):** the question's title and body and every answer's body are `article`;
   vote counts, user cards, "asked/edited" lines and comments are `optional`; the sidebar, hot network
   questions, related questions and the cookie banner are `noise`.
+
+## Labelled by rules
+
+Q&A and docs pages run to 300 to 800 blocks, with the same structure on every page of a site. Their
+drafts were written by rules that follow this guide, `tools/label_stack_exchange.py` and
+`tools/label_docs.py`, checked against labels by hand on a few pages, and spot-checked on each page
+(`--show` prints each block with its label). Their label files say `"labelled_by": "Claude, by rules"`.
+Every other page was labelled block by block.
