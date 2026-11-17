@@ -52,9 +52,12 @@ QUIET_SITES = ("wikipedia.org", "wikivoyage.org", "wikinews.org", "wikibooks.org
 
 # In pixels, the height of the navigation bar at the bottom of a 1080 x 2400 screen
 NAVIGATION_BAR = 150
-# Where swipes start: the middle first; when the page does not move, a side, in case the middle
-# was on something that takes the swipe (a code block, a map, an embedded video)
-SWIPE_COLUMNS = (540, 990, 90)
+# Where drags start, (x, y): the left of the text column first, then the middle and the right side
+# when the page does not move, then the same higher on the screen. Not the middle first: a map in an
+# infobox, on the right half, pans under the drag instead of the page, and the screen changing looks
+# like the page scrolling. Not only one height: an ad or a code block as wide as the screen takes
+# every drag that starts on it
+SWIPE_STARTS = ((150, 1900), (540, 1900), (990, 1900), (150, 1300), (540, 1300), (150, 2200))
 
 
 @dataclass(frozen=True)
@@ -114,13 +117,16 @@ class Device:
     def tap(self, bounds: tuple[int, int, int, int]) -> None:
         self.shell("input", "tap", str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
 
-    def swipe_up(self, x: int = 540) -> None:
-        """Drags the page up by 1,400 pixels, about two thirds of the page's height on screen.
+    def swipe_up(self, x: int = 540, y: int = 1900) -> None:
+        """Drags the page up by up to 1,400 pixels, about two thirds of the page's height on screen,
+        from (x, y) and no higher than the toolbar.
 
         A drag, not a swipe: the finger stops before it lifts, so the page does not fling on. It
         stops sooner, and always moves by the same distance, which keeps an overlap between screens."""
-        moves = "; ".join(f"input motionevent MOVE {x} {y}" for y in (1600, 1250, 900, 550, 500))
-        self.shell(raw=f"input motionevent DOWN {x} 1900; {moves}; sleep 0.15; input motionevent UP {x} 500")
+        end = max(y - 1400, 400)
+        steps = [y - (y - end) * k // 4 for k in range(1, 5)] + [end]
+        moves = "; ".join(f"input motionevent MOVE {x} {step}" for step in steps)
+        self.shell(raw=f"input motionevent DOWN {x} {y}; {moves}; sleep 0.15; input motionevent UP {x} {end}")
 
     def page_hash(self) -> str:
         """A hash of the lower half of the screen, above the navigation bar, computed on the device.
@@ -351,8 +357,8 @@ def scroll_to_end(device: Device, max_swipes: int, timer: Timer | None = None) -
         if screens > max_swipes:
             break
         moved = False
-        for column in SWIPE_COLUMNS:
-            device.swipe_up(column)
+        for x, y in SWIPE_STARTS:
+            device.swipe_up(x, y)
             timer.lap("swipes")
             # Harvest mode reads the screen once it has stopped
             current = settle(device)
