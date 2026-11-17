@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 from smart_select import universal_copy
 from smart_select.dataset import read_pages, read_predictions, write_pages
@@ -22,6 +24,8 @@ def main(argv: list[str] | None = None) -> None:
 
     setup = commands.add_parser("setup-device", help="prepare an emulator with Universal Copy's debug build for captures")
     setup.add_argument("--serial", help="the adb serial of the emulator, when several are connected")
+    setup.add_argument("sources", type=Path, nargs="?", default=Path("data/sources.csv"),
+                       help="the pages to capture: their wikis are set to expand every section")
 
     captures = commands.add_parser("capture", help="capture a web page as Universal Copy reads it, on an emulator")
     captures.add_argument("id", help="the page's id, used for its file names")
@@ -69,7 +73,9 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "setup-device":
         from smart_select.capture import Device, setup
 
-        for line in setup(Device(args.serial)):
+        with args.sources.open() as file:
+            hosts = [urlparse(row["url"]).hostname or "" for row in csv.DictReader(file)]
+        for line in setup(Device(args.serial), hosts):
             print(line)
     elif args.command == "show":
         from smart_select.open_dataset import show

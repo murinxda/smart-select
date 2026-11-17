@@ -30,7 +30,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Iterable
 
 APP = "com.camel.corp.universalcopy"
 DEVICE_DIR = f"/sdcard/Android/data/{APP}/files/smart-select"
@@ -52,6 +52,8 @@ QUIET_SITES = ("wikipedia.org", "wikivoyage.org", "wikinews.org", "wikibooks.org
 
 # In pixels, the height of the navigation bar at the bottom of a 1080 x 2400 screen
 NAVIGATION_BAR = 150
+# In pixels, harvest mode's stop button on a 1080 x 2400 screen
+STOP_BUTTON = (920, 170, 1020, 270)
 # Where drags start, (x, y): the left of the text column first, then the middle and the right side
 # when the page does not move, then the same higher on the screen. Not the middle first: a map in an
 # infobox, on the right half, pans under the drag instead of the page, and the screen changing looks
@@ -205,8 +207,49 @@ def leave(device: Device) -> None:
     time.sleep(0.5)
 
 
-def setup(device: Device) -> list[str]:
-    """Prepares a device for captures, once: returns what it did."""
+# Wikimedia's sites on a phone show each section of an article folded under its heading, until it is
+# tapped: a capture would only hold the introduction and the headings
+MEDIAWIKI_HOSTS = re.compile(r"\.(wikipedia|wikinews|wikivoyage|wikibooks)\.org$")
+# The switch's id doesn't follow its state: its "checked" attribute does
+EXPAND_SECTIONS = r"skin-client-pref-mf-expand-sections-value-[01]"
+
+
+def expand_wiki_sections(device: Device, host: str) -> bool:
+    """Turns on "Expand all sections" in a Wikimedia site's settings, kept by Chrome for that site:
+    returns whether it is on."""
+    def switch() -> tuple[tuple[int, int, int, int], bool] | None:
+        """The switch's bounds and state, when it is on screen."""
+        found = re.search(rf'<node [^>]*resource-id="{EXPAND_SECTIONS}"[^>]*>', device.shell("uiautomator", "dump", "/dev/tty"))
+        if not found:
+            return None
+        bounds = tuple(map(int, re.findall(r"\d+", re.search(r'bounds="([^"]*)"', found.group(0)).group(1))))
+        # Below the screen, Chrome gives it a box of no height at the screen's bottom edge
+        return (bounds, 'checked="true"' in found.group(0)) if bounds[3] > bounds[1] else None
+
+    device.shell("am", "start", "-a", "android.intent.action.VIEW", "-d", f"https://{host}/wiki/Special:MobileOptions",
+                 "-e", "com.android.browser.application_id", "smart-select", "com.android.chrome")
+    wait_for_text(device, enough=5)
+    # A banner can push the settings below the screen
+    for _ in range(3):
+        if wait_until(lambda: switch() is not None, timeout=5, interval=0.5):
+            break
+        device.swipe_up(150)
+        settle(device)
+    # The page shows the switch off until its script reads the saved setting: tapping it then would
+    # turn a saved setting off
+    time.sleep(2)
+    found = switch()
+    if found is None:
+        return False
+    bounds, on = found
+    if not on:
+        device.tap(bounds)
+    return wait_until(lambda: (switch() or (None, False))[1], timeout=10, interval=0.5)
+
+
+def setup(device: Device, hosts: Iterable[str] = ()) -> list[str]:
+    """Prepares a device for captures, once: returns what it did. ``hosts`` are the sites of the
+    pages to capture."""
     done = []
     # Chrome reads extra flags from this file when it is the debug app: no first-run screens
     device.shell("sh", "-c", "echo '_ --disable-fre --no-default-browser-check --no-first-run' > /data/local/tmp/chrome-command-line")
@@ -223,6 +266,12 @@ def setup(device: Device) -> list[str]:
     for setting in ("window_animation_scale", "transition_animation_scale", "animator_duration_scale"):
         device.shell("settings", "put", "global", setting, "0")
     done.append("Animations are off")
+    for host in sorted({host for host in hosts if MEDIAWIKI_HOSTS.search(host)}):
+        # Once more if it failed: a tap while the page still moves can miss the switch
+        if expand_wiki_sections(device, host) or expand_wiki_sections(device, host):
+            done.append(f"{host} expands every section of its articles")
+        else:
+            done.append(f"{host}: could not turn on \"Expand all sections\" in Special:MobileOptions, do it by hand")
     # Not a flag Chrome reads from its command line on Play images: a setting to change by hand
     done.append("Once per emulator, by hand: Chrome › Settings › Languages › turn off \"Offer to send pages "
                 "in other languages to Google Translate\", or a \"Translate page?\" bar ends up in the captures")
@@ -251,7 +300,6 @@ def capture(device: Device, page_id: str, url: str, out: Path, source: dict[str,
     # Without it, harvest mode opens the permission's settings instead of scrolling the page
     if "allow" not in device.shell("appops", "get", APP, "SYSTEM_ALERT_WINDOW"):
         raise RuntimeError(f"Universal Copy may not draw over other apps: adb shell appops set {APP} SYSTEM_ALERT_WINDOW allow")
-    before = device.files()
     device.shell(raw=f"rm -rf {SCREENS_DIR}")
     # Always the same tab: hundreds of tabs would slow Chrome down
     device.shell("am", "start", "-a", "android.intent.action.VIEW", "-d", url,
@@ -277,12 +325,10 @@ def capture(device: Device, page_id: str, url: str, out: Path, source: dict[str,
 
     screens = out / page_id
     screens.mkdir(parents=True, exist_ok=True)
-    count, reached_end = scroll_to_end(device, max_swipes, timer)
+    count, reached_end, saved = scroll_to_end(device, max_swipes, timer)
 
-    # The harvest is saved when harvest mode stops
-    if not wait_until(lambda: device.files() - before, timeout=30, interval=0.5):
-        raise RuntimeError("Universal Copy saved no capture: is it a debug build?")
-    new = sorted(device.files() - before)
+    # The harvest: the file harvest mode saved once it stopped
+    new = sorted(device.files() - saved)
     data = json.loads(device.shell("cat", f"{DEVICE_DIR}/{new[-1]}"))
     data.update(name=page_id, url=url, source=dict(source, url=url), reachedEnd=reached_end, screens=count)
     path = out / f"{page_id}.json"
@@ -318,7 +364,7 @@ def settle(device: Device, timeout: float = 4) -> str:
     return previous
 
 
-def scroll_to_end(device: Device, max_swipes: int, timer: Timer | None = None) -> tuple[int, bool]:
+def scroll_to_end(device: Device, max_swipes: int, timer: Timer | None = None) -> tuple[int, bool, set[str]]:
     """Scrolls in harvest mode until the page stops moving, saving each screen. Returns how many
     screens it saw, and whether it reached the end before ``max_swipes``.
 
@@ -369,14 +415,18 @@ def scroll_to_end(device: Device, max_swipes: int, timer: Timer | None = None) -
         if not moved:
             reached_end = True
             break
-    # Harvest mode reads the last screen before it stops
-    time.sleep(0.5)
+    # Stopping cuts a screen read in progress short (Universal Copy 7.2.3): the last screen's read
+    # must be over first. A long page's screen takes up to 2 s to read
+    time.sleep(3)
 
-    # The stop button, at the top right, ends harvest mode and saves the harvest
-    stop = next((node.bounds for node in device.nodes()
-                 if node.bounds[1] < 300 and node.bounds[0] > 900 and node.bounds[2] - node.bounds[0] < 200),
-                (920, 170, 1020, 270))
-    device.tap(stop)
-    wait_until(lambda: "CopyActivity" in device.focus(), timeout=20, interval=0.5)
+    # The stop button, at the top right of harvest mode's bar, ends harvest mode and saves the harvest.
+    # Tapped where it is drawn: the bar is an accessibility overlay, which uiautomator doesn't list,
+    # and the page's nodes it lists there instead are the page's, under the bar
+    saved = device.files()
+    device.tap(STOP_BUTTON)
+    # Copy mode saves a capture when it opens on the first screen, then the harvest's once it stops:
+    # only a file written after the stop holds the harvest
+    if not wait_until(lambda: device.files() - saved, timeout=30, interval=0.5):
+        raise RuntimeError("harvest mode saved nothing after it stopped: is it a debug build?")
     timer.lap("harvest stop")
-    return screens, reached_end
+    return screens, reached_end, saved

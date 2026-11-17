@@ -22,3 +22,6 @@ adapters/
 .idea/
 .vscode/
 .DS_Store
+
+# Earlier captures, kept to carry their labels over to new ones
+data/raw-*/
