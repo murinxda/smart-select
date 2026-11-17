@@ -124,6 +124,11 @@ class Device:
     def tap(self, bounds: tuple[int, int, int, int]) -> None:
         self.shell("input", "tap", str((bounds[0] + bounds[2]) // 2), str((bounds[1] + bounds[3]) // 2))
 
+    def wheel_down(self, notches: int = 5) -> None:
+        """Scrolls the page down with a mouse wheel, from the middle of the screen: an embedded frame
+        that takes drags lets the wheel through to the page."""
+        self.shell(raw="; ".join(["input mouse scroll 540 1300 --axis VSCROLL,-1"] * notches))
+
     def swipe_up(self, x: int = 540, y: int = 1900) -> None:
         """Drags the page up by up to 1,400 pixels, about two thirds of the page's height on screen,
         from (x, y) and no higher than the toolbar.
@@ -413,13 +418,16 @@ def scroll_to_end(device: Device, max_swipes: int, timer: Timer | None = None) -
         if screens > max_swipes:
             break
         moved = False
-        for x, y in SWIPE_STARTS:
-            device.swipe_up(x, y)
+        # Drags first, then the mouse wheel: an embedded post (X) takes every drag that starts on it,
+        # without moving, and can be as wide as the screen and taller than it
+        moves = [lambda x=x, y=y: device.swipe_up(x, y) for x, y in SWIPE_STARTS] + [lambda: device.wheel_down()]
+        for move in moves:
+            move()
             timer.lap("swipes")
             # Harvest mode reads the screen once it has stopped
             current = settle(device)
             timer.lap("settle")
-            # Both halves: a map swallows every drag that starts on it, and pans
+            # Both bands: a map swallows every drag that starts on it, and pans
             if current[0] != page[0] and current[1] != page[1]:
                 page, moved = current, True
                 break
