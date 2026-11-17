@@ -19,8 +19,7 @@ difference in labelling.
 - **Article:** the title, the body text, its headings and lists, quotes, and every piece of a sentence
   split by links or italics. Footnote marks like `[2]` inside a sentence go with the sentence.
 - **Optional:** images' captions, credits and file names (`File:…`, `….jpg?utm_source=…`), the date
-  and the author, a note above the article like "For other uses, see…", section headings whose text
-  is folded away (mobile Wikipedia folds every section after the introduction), a summary box in the
+  and the author, a note above the article like "For other uses, see…", a summary box in the
   middle of the article (Wikipedia's infobox, a recipe's times grid when unrelated to the steps).
 - **Noise:** the site's name and logo, menus, search, sign in and subscription prompts, tabs, buttons
   (edit, share, save, download), breadcrumbs, cookie banners, maintenance notices ("This article needs
@@ -39,9 +38,9 @@ Each block is labelled for itself, repeats included:
 
 ## By kind of page
 
-- **Encyclopedia (Wikipedia):** the title, the lead and every unfolded section's text, with its
-  heading, are `article`. The infobox and image captions are `optional`, and so are the headings of
-  folded sections. "See also", "References", "External links", "Notes" (their headings included),
+- **Encyclopedia (Wikipedia):** the title, the lead and every section's text, with its heading, are
+  `article` (the captures unfold every section: `setup-device` turns on "Expand all sections" on each
+  Wikimedia site). The infobox and image captions are `optional`. "See also", "References", "External links", "Notes" (their headings included),
   navigation boxes and categories are `noise`.
 - **News (Wikinews, Global Voices):** headline, standfirst, body and subheadings are `article`; byline,
   date, captions and the "translated by" note are `optional`; sources lists, related stories, share
@@ -63,5 +62,15 @@ Each block is labelled for itself, repeats included:
 Q&A and docs pages run to 300 to 800 blocks, with the same structure on every page of a site. Their
 drafts were written by rules that follow this guide, `tools/label_stack_exchange.py` and
 `tools/label_docs.py`, checked against labels by hand on a few pages, and spot-checked on each page
-(`--show` prints each block with its label). Their label files say `"labelled_by": "Claude, by rules"`.
-Every other page was labelled block by block.
+(`--show` prints each block with its label).
+
+The other pages were first captured with Wikimedia's sections folded, and labelled block by block
+(commit a097f5d). Captured again with their sections unfolded, they keep those labels for the blocks
+they had before, found by their text (`tools/first_labels.py`), and rules label the rest:
+`tools/label_wikis.py` by the section a block is in (its heading follows an edit link; "References",
+"See also" and their translations start the noise), `tools/label_global_voices.py` by the part of the
+page (headline, body, embedded posts, what follows the categories). Both mark as `noise` a text read
+again after a scroll, even in another form: a paragraph cut at another line as it crosses the edge of
+the screen, when 90% of its runs of 6 words are in the article before it.
+
+All label files say `"labelled_by": "Claude, by rules"`.
