@@ -28,7 +28,7 @@ NOISE = re.compile(
 END = re.compile(r"^(Your Answer|Start asking to get answers|Not the answer you're looking for\?.*|Hot Network Questions|"
                  r"Linked|Related|Sign up or log in|Post as a guest|Required, but never shown)$")
 AD = re.compile(r"Google logo Ad|googleads|doubleclick|dc_trk|14886595647878845471|Start Building with|"
-                r"No charges until you activate|\?s=\d+&d=identicon|gravatar|user avatar|ref_src")
+                r"No charges until you activate|^clickTag$|LIBÉREZ VOS EXPÉRIENCES|Améliorez les expériences dans votre organisation|^avec un réseau autonome$|\?s=\d+&d=identicon|gravatar|user avatar|ref_src")
 TAG_ROW_TOP_DELTA = 20
 
 
@@ -106,6 +106,9 @@ if "--show" in sys.argv:
         mark = "A" if i in article else "o" if i in optional else "."
         print(f"{mark} {i:4} {block['left']:4} {block['top']:5} {' '.join(block['text'].split())[:80]}")
 else:
+    if json.load(open(f"{ROOT}/data/labels/{page}.json")).get("checked_by"):
+        print(page, "checked by hand, not labelled again")
+        sys.exit()
     label = {"article": ranges(article), "optional": ranges(optional), "labelled_by": "Claude, by rules", "checked_by": None}
     open(f"{ROOT}/data/labels/{page}.json", "w").write(json.dumps(label) + "\n")
     print(page, len(blocks), "blocks:", len(article), "article,", len(optional), "optional")

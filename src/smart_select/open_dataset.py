@@ -23,6 +23,9 @@ VALIDATION_SITES = (
     "wikipedia-it-", "wikipedia-nl-",
 )
 VALIDATION_RECIPES = 3
+# Pages left out of both sets: Universal Copy reads their math formulas one symbol a block, out of order,
+# so no label can say what a person would copy
+EXCLUDED = ("wikipedia-es-superficie-de-riemann", "wikipedia-fr-hauteur-geometrie-algebrique")
 
 
 def is_validation(page_id: str, recipe_index: int | None) -> bool:
@@ -46,6 +49,8 @@ def build(raw: Path, labels: Path, out: Path) -> tuple[list[Page], list[Page], l
     train, validation, unlabelled = [], [], []
     recipes = 0
     for capture in sorted(raw.glob("*.json")):
+        if capture.stem in EXCLUDED:
+            continue
         label_file = labels / capture.name
         if not label_file.exists():
             unlabelled.append(capture.stem)

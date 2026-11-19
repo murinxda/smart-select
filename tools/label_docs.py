@@ -38,13 +38,13 @@ NOISE_SECTIONS = re.compile(r"^(See also|Voir aussi|Help improve MDN|Aider à am
                             r"Additional resources|Next steps|Recommended for you|Content and code samples on this page.*|"
                             r"Related content|Samples|Videos|Blogs)$")
 OPTIONAL_LINE = re.compile(r"^(Baseline .*|This page was last modified on .*|Last updated .*|Figure \d+\..*|"
-                           r"Console output|Sortie de la console|.*\.(png|jpg|svg|gif)(\?.*)?$|[a-z0-9]+[_-][a-z0-9_-]+$|[a-z]+\d+$)")
+                           r"Console output|Sortie de la console|[A-Z]\w*\.(kt|java|kts|xml|gradle)|.*\.(png|jpg|svg|gif)(\?.*)?$|[a-z0-9]+[_-][a-z0-9_-]+$|[a-z]+\d+$)")
 
 
 def label_page() -> tuple[set[int], set[int]]:
     article, optional = set(), set()
     # The title: the first big text block at the left margin, below the header
-    title = next(i for i, b in enumerate(blocks) if b["left"] < 60 and 480 <= b["top"] <= 1000
+    title = next(i for i, b in enumerate(blocks) if b["left"] < 60 and 480 <= b["top"] <= 2000
                  and len(texts[i]) > 3 and not BUTTON.match(texts[i]) and not texts[i].startswith(("Web", "Android")))
     toc_start = next((i for i in range(title, len(blocks)) if TOC.match(texts[i])), None)
     # The table of contents lists the headings, each once or twice, in a narrow column, before the body's
@@ -61,9 +61,14 @@ def label_page() -> tuple[set[int], set[int]]:
     for i in range(title, len(blocks)):
         text = texts[i]
         key = text[:40]
-        # Read again after a scroll: the same text, higher on the screen than when first read
-        repeat = len(key) >= 6 and key in seen and blocks[i]["top"] < blocks[seen[key]]["top"] - 100
-        seen.setdefault(key, i)
+        # Read again after a scroll: the same text, or one of them cut by the screen's edge, higher on the
+        # screen than when first read. The table of contents' entries are not the headings' first reading.
+        j = seen.get(key)
+        repeat = len(key) >= 6 and j is not None and blocks[i]["top"] < blocks[j]["top"] - 100 \
+            and (texts[j].startswith(text) or text.startswith(texts[j]))
+        in_toc = toc_start is not None and toc_start <= i < body_start
+        if not in_toc:
+            seen.setdefault(key, i)
         if NOISE_SECTIONS.match(text) and i > body_start and blocks[i]["left"] <= 42:
             state = "noise"
         elif OPTIONAL_SECTIONS.match(text) and i > body_start and state == "article" and blocks[i]["left"] <= 42:
@@ -98,6 +103,9 @@ if "--show" in sys.argv:
         mark = "A" if i in article else "o" if i in optional else "."
         print(f"{mark} {i:4} {block['left']:4} {block['top']:5} {texts[i][:80]}")
 else:
+    if json.load(open(f"{ROOT}/data/labels/{page}.json")).get("checked_by"):
+        print(page, "checked by hand, not labelled again")
+        sys.exit()
     label = {"article": ranges(article), "optional": ranges(optional), "labelled_by": "Claude, by rules", "checked_by": None}
     open(f"{ROOT}/data/labels/{page}.json", "w").write(json.dumps(label) + "\n")
     print(page, len(blocks), "blocks:", len(article), "article,", len(optional), "optional")

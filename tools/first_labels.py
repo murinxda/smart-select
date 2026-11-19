@@ -34,6 +34,10 @@ def ranges(values: set[int]) -> str:
     return ",".join(out)
 
 
+def blocks(page: str) -> list[dict]:
+    return json.load(open(ROOT / "data/raw" / f"{page}.json"))["harvest"]
+
+
 def texts(page: str) -> list[str]:
     return [" ".join(b["text"].split()) for b in json.load(open(ROOT / "data/raw" / f"{page}.json"))["harvest"]]
 
@@ -60,7 +64,13 @@ class FirstLabels:
         first = self.by_text.get(text, [])
         k = self.readings.get(text, 0)
         self.readings[text] = k + 1
-        return first[min(k, len(first) - 1)] if first else None
+        label = first[min(k, len(first) - 1)] if first else None
+        if label == "." and k == 0 and len(text) > 80 and any(
+                other[:40] == text[:40] and "A" in labels for other, labels in self.by_text.items() if other != text):
+            # The first capture read this paragraph cut by the screen's edge, then whole again after a
+            # scroll: read once now, it is the article's paragraph
+            label = "A"
+        return label
 
 
 def reread(texts: list[str], i: int) -> bool:
@@ -93,11 +103,20 @@ def drop_rereads(texts: list[str], labels: list[str]) -> None:
             read |= runs
 
 
+def checked(page: str) -> bool:
+    """Whether a person checked the page's labels: the rules never overwrite them."""
+    file = ROOT / "data/labels" / f"{page}.json"
+    return file.exists() and bool(json.loads(file.read_text()).get("checked_by"))
+
+
 def write(page: str, texts: list[str], labels: list[str]) -> None:
     """Writes the page's label file, and with --show, prints each block with its label."""
     if "--show" in sys.argv:
         for i, (text, label) in enumerate(zip(texts, labels)):
             print(f"{label} {i:4d} {text[:110]}")
+    if checked(page):
+        print(f"{page}: checked by hand, not labelled again")
+        return
     article = {i for i, label in enumerate(labels) if label == "A"}
     optional = {i for i, label in enumerate(labels) if label == "o"}
     out = {"article": ranges(article), "optional": ranges(optional), "labelled_by": "Claude, by rules", "checked_by": None}
