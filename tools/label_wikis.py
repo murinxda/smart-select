@@ -46,7 +46,7 @@ UI = re.compile(r"^(Zoom in|Zoom out|Zoom avant|Zoom arrière|Layers|Show in ful
                 r"Esta caixa:|ver ·|discutir|v · d · e|v · t · e|\[editar datos en Wikidata\])$")
 # Wikivoyage's notices about the guide, its map's credits and scale, and its calls to contribute
 TRAVEL_NOISE = re.compile(r"^(This [\w ]+ travel guide to .+ is |This article is partly based on|L[’']article de (cette|ce|la) \w+ est |"
-                          r"Esta guía es |Liste complète des autres articles|Y tú, ¿que esperas|"
+                          r"Esta guía es |Liste complète des autres articles|Ces conseils de voyage sont |Créez la catégorie|Y tú, ¿que esperas|"
                           r"(Cartes|Mapas)( de)? Wikimedia \||Wikimedia maps \||\d+ (m|km|ft|mi)$)")
 # A banner's close link, read as three blocks: "[", "dismiss", "]"
 DISMISS = re.compile(r"^(dismiss|fermer|ocultar)$")

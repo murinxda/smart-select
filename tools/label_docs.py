@@ -30,6 +30,7 @@ BUTTON = re.compile(
 )
 AD = re.compile(r"aHR0c|Otari|Cloudflare Build|MongoDB|Discover Otari|Get started$|Build for the agent era|"
                 r"Deploy serverless functions|Paragon|Customer file sync|^How it works$|^English \(US\)$|^Français$|^Web$|uses cookies from Google|Control Your LLM Infrastructure|Meet Otari")
+VIDEO_START = re.compile(r"^(Hide player controls|YouTube Video Player)$")
 # The table of contents, then the body starts at its first heading
 TOC = re.compile(r"^(In this article|Dans cet article|On this page)$")
 # Sections after the body: optional ones, then noise
@@ -45,7 +46,8 @@ def label_page() -> tuple[set[int], set[int]]:
     article, optional = set(), set()
     # The title: the first big text block at the left margin, below the header
     title = next(i for i, b in enumerate(blocks) if b["left"] < 60 and 480 <= b["top"] <= 2000
-                 and len(texts[i]) > 3 and not BUTTON.match(texts[i]) and not texts[i].startswith(("Web", "Android")))
+                 and len(texts[i]) > 3 and not BUTTON.match(texts[i]) and not texts[i].startswith(("Web", "Android"))
+                 and not texts[i].isupper())
     toc_start = next((i for i in range(title, len(blocks)) if TOC.match(texts[i])), None)
     # The table of contents lists the headings, each once or twice, in a narrow column, before the body's
     # first heading at the left margin again
@@ -57,6 +59,8 @@ def label_page() -> tuple[set[int], set[int]]:
                            if blocks[i]["left"] == 42 and not BUTTON.match(texts[i]) and not AD.search(texts[i])
                            and not TOC.match(texts[i])), toc_start + 1)
     state = "article"
+    # An embedded video's card, from its player to "Watch on": its controls, channel and title
+    video = False
     seen: dict[str, int] = {}
     for i in range(title, len(blocks)):
         text = texts[i]
@@ -73,8 +77,15 @@ def label_page() -> tuple[set[int], set[int]]:
             state = "noise"
         elif OPTIONAL_SECTIONS.match(text) and i > body_start and state == "article" and blocks[i]["left"] <= 42:
             state = "optional"
+        if VIDEO_START.match(text):
+            video = True
+        in_video = video and len(text) <= 80
+        if video and text in ("Watch on", "Share") and (text == "Share" or not texts[i + 1:i + 2] == ["Share"]):
+            # The card ends with "Watch on", and its share button when there is one
+            video = False
         breadcrumb = text.isupper() and len(text) < 40
-        if state == "noise" or repeat or breadcrumb or BUTTON.match(text) or AD.search(text):
+        if state == "noise" or repeat or breadcrumb or in_video or BUTTON.match(text) or AD.search(text) \
+                or text == "Android Developers":
             continue
         if i == title:
             article.add(i)

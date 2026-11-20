@@ -51,12 +51,12 @@ Each block is labelled for itself, repeats included:
 - **Travel (Wikivoyage):** all the guide's text is `article`, listings (addresses, prices, hours)
   included: that is what a traveller copies. The map is `optional`; its credits ("Wikimedia maps |
   Map data ©…") and scale ("500 m"), the guide's status notice ("This city travel guide to … is an
-  outline"), the list of the region's other articles and calls to contribute are `noise`.
+  outline"), the list of the region's other articles, "Créez la catégorie…" and calls to contribute are `noise`.
 - **Recipes (Wikibooks):** title, introduction, ingredients, equipment, steps and notes are `article`;
   category boxes and "this recipe needs…" notices are `noise`.
 - **Docs (MDN, Android):** title, body text, code blocks, notes and tables are `article`; the table of
   contents ("In this article", "On this page"), side navigation, breadcrumbs, "Was this helpful?" and
-  feedback widgets are `noise`; the "last modified" line and browser compatibility tables are
+  feedback widgets, and embedded videos' cards (player, channel, title) are `noise`; the "last modified" line and browser compatibility tables are
   `optional`, and so are code samples' file names ("IndexSnippets.kt").
 - **Q&A (Stack Exchange):** the question's title and body and every answer's body are `article`;
   vote counts, user cards, "asked/edited" lines and comments are `optional`; the sidebar, hot network

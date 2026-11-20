@@ -97,10 +97,10 @@ says how the main content starts, as the app does. On the 40 validation pages, t
 
 | Model | Complete pages | F2 | Article found | Precision | Per page |
 |---|---|---|---|---|---|
-| 3B, 8-bit, one example | 7/40 | 0.820 | 0.814 | 0.907 | 33 s |
-| 3B, 8-bit | 5/40 | 0.837 | 0.831 | 0.894 | 22 s |
-| 8B, 4-bit | 1/40 | 0.838 | 0.825 | 0.930 | 46 s |
-| 8B, 4-bit, one example | 1/40 | 0.824 | 0.807 | 0.942 | 68 s |
+| 3B, 8-bit, one example | 7/40 | 0.822 | 0.816 | 0.906 | 33 s |
+| 3B, 8-bit | 5/40 | 0.838 | 0.833 | 0.894 | 22 s |
+| 8B, 4-bit | 1/40 | 0.840 | 0.828 | 0.930 | 46 s |
+| 8B, 4-bit, one example | 1/40 | 0.826 | 0.810 | 0.941 | 68 s |
 
 - The models find most of each article, but nearly always drop part of it: about 10 pages in each run
   miss only one or two blocks, and the title is missed on 15 to 17 pages. A larger model keeps less
@@ -116,17 +116,18 @@ what they said about each block:
 
 | System | Complete pages | F2 | Article found | Precision |
 |---|---|---|---|---|
-| Position rules alone, keeping every block they allow | 22/40 | 0.896 | 0.971 | 0.719 |
-| Position rules with a perfect model | 20/40 | 0.971 | 0.968 | 0.985 |
-| 3B, 8-bit, one example, in the rules | 10/40 | 0.832 | 0.822 | 0.934 |
-| 3B, 8-bit, in the rules | 9/40 | 0.828 | 0.821 | 0.912 |
-| 8B, 4-bit, in the rules | 1/40 | 0.838 | 0.824 | 0.938 |
-| 8B, 4-bit, one example, in the rules | 1/40 | 0.831 | 0.815 | 0.946 |
+| Position rules alone, keeping every block they allow | 22/40 | 0.896 | 0.971 | 0.716 |
+| Position rules with a perfect model | 22/40 | 0.972 | 0.970 | 0.985 |
+| 3B, 8-bit, one example, in the rules | 10/40 | 0.833 | 0.824 | 0.933 |
+| 3B, 8-bit, in the rules | 9/40 | 0.829 | 0.823 | 0.911 |
+| 8B, 4-bit, in the rules | 1/40 | 0.840 | 0.826 | 0.938 |
+| 8B, 4-bit, one example, in the rules | 1/40 | 0.833 | 0.817 | 0.946 |
 
 - The rules add a few complete pages and some precision, not the article the models missed.
-- On these pages the rules' ceiling is low: with a perfect model they complete 20 pages of 40. Code
+- On these pages the rules' ceiling is low: with a perfect model they complete 22 pages of 40. Code
   blocks and quotes indented in docs and Q&A, and Wikivoyage's headings, do not line up with the
-  article's column. Alone, without a model, the rules complete more pages than any prompted model.
+  article's column. Alone, without a model, the rules complete as many pages, more than any prompted
+  model.
 
 ```sh
 uv sync --group models

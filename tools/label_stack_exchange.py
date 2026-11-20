@@ -18,7 +18,7 @@ blocks = json.load(open(f"{ROOT}/data/raw/{page}.json"))["harvest"]
 
 NOISE = re.compile(
     r"^(Skip to main content|Ask Question|Log in|Sign up|Search|help|stackexchange|stackoverflow|Up vote|Down vote|Save|"
-    r"timeline|Share|Improve this (question|answer)|Follow|Show \d+ more comments?|Sorted by:|Highest score \(default\)|"
+    r"timeline|Share|Save ?Accepted|Improve this (question|answer)|Follow|Show \d+ more comments?|Sorted by:|Highest score \(default\)|"
     r"Add a comment|Report this ad|Ad|SafeFrame Container|Copy|Run code snippet|Expand|Hide results|Edit|Accepted|"
     r"Reset to default|Trending.*|Date modified.*|Date created.*|Add a comment\s*\|.*|.*\bAds? by\b.*|"
     r"Highly active question.*|Protected question.*|Show activity on this post\.|Load \d+ more.*|"
