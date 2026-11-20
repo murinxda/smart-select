@@ -88,6 +88,33 @@ Stack Overflow):
 
 These are the Universal Copy app's own selections, saved as predictions files and scored here.
 
+## Prompting without training
+
+Ministral 3 Instruct, run on the MacBook with MLX, prompted the way the app prompts Gemini Nano
+(`src/smart_select/prompting.py`): the page cut in windows of up to 100 blocks, each block with its left
+and right edges, and an answer of block numbers (`Answer: 3-7, 9`). After the first window, the prompt
+says how the main content starts, as the app does. On the 40 validation pages, the model alone:
+
+| Model | Complete pages | F2 | Article found | Precision | Per page |
+|---|---|---|---|---|---|
+| 3B, 8-bit, one example | 7/40 | 0.820 | 0.814 | 0.907 | 33 s |
+| 3B, 8-bit | 5/40 | 0.837 | 0.831 | 0.894 | 22 s |
+| 8B, 4-bit | 1/40 | 0.838 | 0.825 | 0.930 | 46 s |
+| 8B, 4-bit, one example | 1/40 | 0.824 | 0.807 | 0.942 | 68 s |
+
+- The models find most of each article, but nearly always drop part of it: about 10 pages in each run
+  miss only one or two blocks, and the title is missed on 15 to 17 pages. A larger model keeps less
+  noise, not more of the article.
+- One labelled example in the prompt (a Wikinews page) changes little.
+- Told to answer "none" when a later window does not continue the article, the models do so on 31 of
+  67 later windows: rightly on 22, which hold footers and related links, wrongly on 9, which hold part
+  of the article.
+
+```sh
+uv sync --group models
+uv run smart-select prompt --system "Ministral 3 3B, prompted" --out data/open/predictions/ministral-3b.json
+```
+
 ## Data
 
 The 25 pages above hold the full text of copyrighted articles: they stay private, and serve only as the
@@ -151,7 +178,8 @@ that sets the size of the models we can fine-tune.
    Nano's recorded answers. The Python scoring gives the same results as the app's, page by page.
 3. ✅ Capturing and labelling the open pages: 145 pages captured, 143 kept, 103 for training and 40 for
    validation; a sample of 25 checked by hand, and the rules fixed to match.
-4. Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
+4. Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds: the model alone is
+   measured, the model inside the app's rules is next.
 5. Fine-tuning Ministral 3 with LoRA, and training the classifier.
 6. The benchmark: every approach on the private test set.
 7. Exporting the best model to the phone, or serving it in the cloud.

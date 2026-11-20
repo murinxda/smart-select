@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from smart_select import universal_copy
-from smart_select.dataset import read_pages, read_predictions, write_pages
+from smart_select.dataset import read_pages, read_predictions, write_pages, write_predictions
 from smart_select.scoring import Summary, score_system
 
 
@@ -59,6 +59,14 @@ def main(argv: list[str] | None = None) -> None:
     reviews.add_argument("--labels", type=Path, default=Path("data/labels"))
     reviews.add_argument("--sample", type=Path, default=Path("data/review-sample.json"), help="where the sample is kept")
     reviews.add_argument("--summary", action="store_true", help="only print how many blocks the reviewer changed")
+
+    prompts = commands.add_parser("prompt", help="select with a model run on this Mac, by prompting it without training")
+    prompts.add_argument("--model", default="mlx-community/Ministral-3-3B-Instruct-2512-8bit")
+    prompts.add_argument("--system", required=True, help="the system's name in the predictions file")
+    prompts.add_argument("--pages", type=Path, default=Path("data/open/validation.jsonl"))
+    prompts.add_argument("--example", help="the id of a training page whose first window the prompt shows labelled")
+    prompts.add_argument("--train", type=Path, default=Path("data/open/train.jsonl"))
+    prompts.add_argument("--out", type=Path, required=True, help="the predictions file to write")
 
     score = commands.add_parser("score", help="score systems' predictions on labelled pages")
     score.add_argument("pages", type=Path, help="a JSONL file of labelled pages")
@@ -112,6 +120,25 @@ def main(argv: list[str] | None = None) -> None:
         data = json.loads(path.read_text(encoding="utf-8"))
         end = "reached the end" if data["reachedEnd"] else f"stopped after {args.max_swipes} swipes"
         print(f"{path}: {len(data['screen'])} blocks on screen, {len(data.get('harvest') or [])} harvested, {end}")
+    elif args.command == "prompt":
+        from smart_select.prompting import mlx_model, predictions, select
+
+        pages = read_pages(args.pages)
+        example = next(page for page in read_pages(args.train) if page.id == args.example) if args.example else None
+        ask = mlx_model(args.model)
+        runs = []
+        log = args.out.with_suffix(".log.jsonl")
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        with log.open("w", encoding="utf-8") as lines:
+            for number, page in enumerate(pages, start=1):
+                run = select(page, ask, example)
+                runs.append(run)
+                lines.write(json.dumps(run.__dict__, ensure_ascii=False) + "\n")
+                lines.flush()
+                print(f"[{number}/{len(pages)}] {page.id}: {len(run.kept)} of {len(page.blocks)} blocks kept, "
+                      f"{run.windows} windows, {run.unreadable} unreadable, {run.seconds:.0f} s", flush=True)
+        write_predictions(args.system, predictions(runs), args.out)
+        print(table([score_system(args.system, pages, predictions(runs))]))
     else:
         pages = read_pages(args.pages)
         summaries = []
