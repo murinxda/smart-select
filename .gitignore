@@ -25,3 +25,6 @@ adapters/
 
 # Earlier captures, kept to carry their labels over to new ones
 data/raw-*/
+
+# Training examples, built from the labelled pages
+data/finetune/

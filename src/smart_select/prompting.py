@@ -183,11 +183,14 @@ def select(page: Page, ask: Ask, example: Page | None = None) -> PageRun:
     return PageRun(page.id, sorted(chosen), len(page_windows), unreadable, time.monotonic() - started, answers)
 
 
-def mlx_model(name: str, max_tokens: int = 400) -> Ask:
-    """A model run on this Mac with MLX, answering without sampling: the same prompt gives the same answer."""
+def mlx_model(name: str, adapter: str | None = None, max_tokens: int = 400) -> Ask:
+    """A model run on this Mac with MLX, answering without sampling: the same prompt gives the same answer.
+
+    :param adapter: a folder of LoRA weights trained on top of the model, see ``finetune``
+    """
     from mlx_lm import generate, load
 
-    model, tokenizer = load(name, tokenizer_config={"fix_mistral_regex": True})
+    model, tokenizer = load(name, adapter_path=adapter, tokenizer_config={"fix_mistral_regex": True})
 
     def ask(messages: list[dict[str, str]]) -> str:
         prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)

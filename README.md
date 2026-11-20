@@ -134,6 +134,53 @@ uv sync --group models
 uv run smart-select prompt --system "Ministral 3 3B, prompted" --out data/open/predictions/ministral-3b.json
 ```
 
+## Fine-tuning with LoRA
+
+Ministral 3 3B (8-bit) fine-tuned on the 103 training pages, asked exactly as above
+(`src/smart_select/finetune.py`, `configs/lora-3b.yaml`):
+
+- **Examples:** one chat per window, its answer the numbers of the window's `article` blocks. Each page
+  is cut twice, as at inference and shifted by half a window: 527 training windows, 234 for validation.
+- **What is learned:** only the answer, not the prompt (`mask_prompt`). LoRA adapters of rank 16 on the
+  last 16 layers; the 8-bit model stays frozen.
+- **Training:** 2 passes, one window per step, learning rate 1e-5 (at 1e-4 the validation loss rose
+  from 0.96 to 4.55). 1,050 steps, about 17 s each: 4 h 50 on the MacBook.
+
+| Step | 1 | 200 | 400 | 600 | 800 | 1000 | 1050 |
+|---|---|---|---|---|---|---|---|
+| Validation loss (10 windows) | 1.07 | 0.53 | 0.43 | 0.64 | 0.36 | 0.39 | 0.42 |
+
+On the 40 validation pages:
+
+| System | Complete pages | F2 | Article found | Precision | Per page |
+|---|---|---|---|---|---|
+| 3B, LoRA, end of training | **15/40** | **0.950** | 0.946 | 0.970 | 21 s |
+| 3B, LoRA, step 800 | 9/40 | 0.929 | 0.921 | 0.977 | |
+| 3B, LoRA, step 400 | 8/40 | 0.853 | 0.838 | 0.966 | |
+| 3B, LoRA, end of training, in the app's rules | 15/40 | 0.934 | 0.928 | 0.966 | |
+| 3B, prompted | 5/40 | 0.838 | 0.833 | 0.894 | 22 s |
+| Position rules alone | 22/40 | 0.896 | 0.971 | 0.716 | |
+| Position rules with a perfect model | 22/40 | 0.972 | 0.970 | 0.985 | |
+
+- Fine-tuning triples the complete pages and lifts F2 from 0.84 to 0.95, with precision from 0.89 to
+  0.97. The fine-tuned model alone has the best F2 of every system but the perfect one.
+- The lowest validation loss (step 800) is not the best checkpoint: the scores kept rising to the end
+  of training, so a longer run may do better. The loss counts the answer's tokens; a page is complete
+  only when no block is missed.
+- The checkpoint was chosen on the same 40 pages it is scored on, among three: the private test set
+  will give the unbiased score.
+- Of the 25 pages still incomplete, 8 miss only one or two blocks: on Global Voices, the intro
+  paragraph under the title; elsewhere, a section heading. The long pages of documentation and Q&A
+  miss scattered blocks: code, notes, short answers.
+- The app's rules no longer help: they drop article blocks the model kept, outside the column.
+
+```sh
+uv sync --group models
+uv run smart-select finetune-data
+uv run python tools/train_lora.py -c configs/lora-3b.yaml
+uv run smart-select prompt --adapter adapters/ministral-3b --system "Ministral 3 3B, LoRA" --out data/open/predictions/ministral-3b-lora.json
+```
+
 ## Data
 
 The 25 pages above hold the full text of copyrighted articles: they stay private, and serve only as the
@@ -198,7 +245,8 @@ that sets the size of the models we can fine-tune.
 3. ✅ Capturing and labelling the open pages: 145 pages captured, 143 kept, 103 for training and 40 for
    validation; a sample of 25 checked by hand, and the rules fixed to match.
 4. ✅ Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
-5. Fine-tuning Ministral 3 with LoRA, and training the classifier.
+5. Fine-tuning Ministral 3 with LoRA (✅ the 3B: 15/40 complete pages, F2 0.950), and training the
+   classifier.
 6. The benchmark: every approach on the private test set.
 7. Exporting the best model to the phone, or serving it in the cloud.
 

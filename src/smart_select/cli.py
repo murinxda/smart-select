@@ -62,11 +62,17 @@ def main(argv: list[str] | None = None) -> None:
 
     prompts = commands.add_parser("prompt", help="select with a model run on this Mac, by prompting it without training")
     prompts.add_argument("--model", default="mlx-community/Ministral-3-3B-Instruct-2512-8bit")
+    prompts.add_argument("--adapter", help="a folder of LoRA weights trained on top of the model")
     prompts.add_argument("--system", required=True, help="the system's name in the predictions file")
     prompts.add_argument("--pages", type=Path, default=Path("data/open/validation.jsonl"))
     prompts.add_argument("--example", help="the id of a training page whose first window the prompt shows labelled")
     prompts.add_argument("--train", type=Path, default=Path("data/open/train.jsonl"))
     prompts.add_argument("--out", type=Path, required=True, help="the predictions file to write")
+
+    tunes = commands.add_parser("finetune-data", help="write the training examples for fine-tuning, one chat per window")
+    tunes.add_argument("--train", type=Path, default=Path("data/open/train.jsonl"))
+    tunes.add_argument("--validation", type=Path, default=Path("data/open/validation.jsonl"))
+    tunes.add_argument("--out", type=Path, default=Path("data/finetune"))
 
     exports = commands.add_parser("export-app-samples", help="write pages and a system's answers for Universal Copy's scoring test")
     exports.add_argument("pages", type=Path)
@@ -125,6 +131,12 @@ def main(argv: list[str] | None = None) -> None:
         data = json.loads(path.read_text(encoding="utf-8"))
         end = "reached the end" if data["reachedEnd"] else f"stopped after {args.max_swipes} swipes"
         print(f"{path}: {len(data['screen'])} blocks on screen, {len(data.get('harvest') or [])} harvested, {end}")
+    elif args.command == "finetune-data":
+        from smart_select.finetune import write_examples
+
+        train = write_examples(read_pages(args.train), args.out / "train.jsonl")
+        valid = write_examples(read_pages(args.validation), args.out / "valid.jsonl")
+        print(f"{train} training examples, {valid} validation examples in {args.out}")
     elif args.command == "export-app-samples":
         _, kept = read_predictions(args.predictions)
         universal_copy.write_samples(read_pages(args.pages), kept, args.out)
@@ -134,7 +146,7 @@ def main(argv: list[str] | None = None) -> None:
 
         pages = read_pages(args.pages)
         example = next(page for page in read_pages(args.train) if page.id == args.example) if args.example else None
-        ask = mlx_model(args.model)
+        ask = mlx_model(args.model, args.adapter)
         runs = []
         log = args.out.with_suffix(".log.jsonl")
         args.out.parent.mkdir(parents=True, exist_ok=True)
