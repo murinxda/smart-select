@@ -11,7 +11,7 @@ import json
 import shutil
 from pathlib import Path
 
-from smart_select.dataset import Block, Label, Page
+from smart_select.dataset import Block, Label, Page, Predictions
 
 
 def read_capture(path: Path, source: dict[str, str], labels: dict[str, str] | None = None) -> Page | None:
@@ -54,6 +54,37 @@ def import_folder(samples: Path, out: Path, source: dict[str, str]) -> tuple[lis
         shutil.copyfile(predictions, target)
         copied.append(target)
     return pages, copied
+
+
+def write_samples(pages: list[Page], predictions: Predictions, out: Path) -> None:
+    """Writes pages as Universal Copy's scoring test reads them, with a model's answers to replay: the
+    app's position rules then run on what that model kept.
+
+    The model was not asked the app's own prompts, so none is recorded: every question the rules ask,
+    in both passes, gets what the model said about each block (``firstPass``), like a model that gives
+    a block the same answer whenever it sees it.
+    """
+    out.mkdir(parents=True, exist_ok=True)
+    for page in pages:
+        labels = {"article": _ranges(i for i, label in enumerate(page.labels) if label == "article"),
+                  "optional": _ranges(i for i, label in enumerate(page.labels) if label == "optional")}
+        sample = {"name": page.id, "package": page.app, "screenWidth": page.screen_width, "screenHeight": page.screen_height,
+                  "screen": [], "harvest": [{"text": b.text, "left": b.left, "right": b.right, "top": b.top} for b in page.blocks],
+                  "labels": labels}
+        (out / f"{page.id}.json").write_text(json.dumps(sample, ensure_ascii=False), encoding="utf-8")
+        kept = set(predictions.get(page.id, []))
+        answers = {"prompts": {}, "firstPass": {str(i): i in kept for i in range(len(page.blocks))}}
+        (out / f"{page.id}.answers.json").write_text(json.dumps(answers), encoding="utf-8")
+
+
+def _ranges(indexes) -> str:
+    out: list[list[int]] = []
+    for index in sorted(indexes):
+        if out and out[-1][1] == index - 1:
+            out[-1][1] = index
+        else:
+            out.append([index, index])
+    return ",".join(str(a) if a == b else f"{a}-{b}" for a, b in out)
 
 
 def _indexes(ranges: str) -> set[int]:

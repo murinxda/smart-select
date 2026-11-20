@@ -110,6 +110,24 @@ says how the main content starts, as the app does. On the 40 validation pages, t
   67 later windows: rightly on 22, which hold footers and related links, wrongly on 9, which hold part
   of the article.
 
+Inside the app's rules, with the same answers (Universal Copy's `SmartSelectionSamplesTest`, from
+`smart-select export-app-samples`). The models were not asked the app's own prompts, so both passes get
+what they said about each block:
+
+| System | Complete pages | F2 | Article found | Precision |
+|---|---|---|---|---|
+| Position rules alone, keeping every block they allow | 22/40 | 0.896 | 0.971 | 0.719 |
+| Position rules with a perfect model | 20/40 | 0.971 | 0.968 | 0.985 |
+| 3B, 8-bit, one example, in the rules | 10/40 | 0.832 | 0.822 | 0.934 |
+| 3B, 8-bit, in the rules | 9/40 | 0.828 | 0.821 | 0.912 |
+| 8B, 4-bit, in the rules | 1/40 | 0.838 | 0.824 | 0.938 |
+| 8B, 4-bit, one example, in the rules | 1/40 | 0.831 | 0.815 | 0.946 |
+
+- The rules add a few complete pages and some precision, not the article the models missed.
+- On these pages the rules' ceiling is low: with a perfect model they complete 20 pages of 40. Code
+  blocks and quotes indented in docs and Q&A, and Wikivoyage's headings, do not line up with the
+  article's column. Alone, without a model, the rules complete more pages than any prompted model.
+
 ```sh
 uv sync --group models
 uv run smart-select prompt --system "Ministral 3 3B, prompted" --out data/open/predictions/ministral-3b.json
@@ -178,8 +196,7 @@ that sets the size of the models we can fine-tune.
    Nano's recorded answers. The Python scoring gives the same results as the app's, page by page.
 3. ✅ Capturing and labelling the open pages: 145 pages captured, 143 kept, 103 for training and 40 for
    validation; a sample of 25 checked by hand, and the rules fixed to match.
-4. Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds: the model alone is
-   measured, the model inside the app's rules is next.
+4. ✅ Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
 5. Fine-tuning Ministral 3 with LoRA, and training the classifier.
 6. The benchmark: every approach on the private test set.
 7. Exporting the best model to the phone, or serving it in the cloud.

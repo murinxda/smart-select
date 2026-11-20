@@ -68,6 +68,11 @@ def main(argv: list[str] | None = None) -> None:
     prompts.add_argument("--train", type=Path, default=Path("data/open/train.jsonl"))
     prompts.add_argument("--out", type=Path, required=True, help="the predictions file to write")
 
+    exports = commands.add_parser("export-app-samples", help="write pages and a system's answers for Universal Copy's scoring test")
+    exports.add_argument("pages", type=Path)
+    exports.add_argument("predictions", type=Path)
+    exports.add_argument("--out", type=Path, required=True)
+
     score = commands.add_parser("score", help="score systems' predictions on labelled pages")
     score.add_argument("pages", type=Path, help="a JSONL file of labelled pages")
     score.add_argument("predictions", type=Path, nargs="+", help="one predictions file per system")
@@ -120,6 +125,10 @@ def main(argv: list[str] | None = None) -> None:
         data = json.loads(path.read_text(encoding="utf-8"))
         end = "reached the end" if data["reachedEnd"] else f"stopped after {args.max_swipes} swipes"
         print(f"{path}: {len(data['screen'])} blocks on screen, {len(data.get('harvest') or [])} harvested, {end}")
+    elif args.command == "export-app-samples":
+        _, kept = read_predictions(args.predictions)
+        universal_copy.write_samples(read_pages(args.pages), kept, args.out)
+        print(f"Samples written to {args.out}: run Universal Copy's SmartSelectionSamplesTest with -PsmartSelectSamples={args.out.resolve()}")
     elif args.command == "prompt":
         from smart_select.prompting import mlx_model, predictions, select
 
