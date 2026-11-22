@@ -74,6 +74,14 @@ def main(argv: list[str] | None = None) -> None:
     tunes.add_argument("--validation", type=Path, default=Path("data/open/validation.jsonl"))
     tunes.add_argument("--out", type=Path, default=Path("data/finetune"))
 
+    classifies = commands.add_parser("classify", help="train the per-block classifier on the training pages, and select with it")
+    classifies.add_argument("--system", default="Block classifier, e5-small + GRU", help="the system's name in the predictions file")
+    classifies.add_argument("--train", type=Path, default=Path("data/open/train.jsonl"))
+    classifies.add_argument("--pages", type=Path, default=Path("data/open/validation.jsonl"))
+    classifies.add_argument("--cache", type=Path, default=Path("data/classifier/embeddings.npz"), help="where the blocks' vectors are kept")
+    classifies.add_argument("--seeds", type=int, default=5, help="how many models to train and average")
+    classifies.add_argument("--out", type=Path, required=True, help="the predictions file to write")
+
     exports = commands.add_parser("export-app-samples", help="write pages and a system's answers for Universal Copy's scoring test")
     exports.add_argument("pages", type=Path)
     exports.add_argument("predictions", type=Path)
@@ -137,6 +145,21 @@ def main(argv: list[str] | None = None) -> None:
         train = write_examples(read_pages(args.train), args.out / "train.jsonl")
         valid = write_examples(read_pages(args.validation), args.out / "valid.jsonl")
         print(f"{train} training examples, {valid} validation examples in {args.out}")
+    elif args.command == "classify":
+        from smart_select import classifier
+
+        train_pages, pages = read_pages(args.train), read_pages(args.pages)
+        embeddings = classifier.Embeddings(args.cache)(train_pages + pages)
+        found = classifier.cross_validate(train_pages, embeddings, classifier.Settings(), args.seeds)
+        print(f"Cross-validation on {len(train_pages)} training pages:")
+        for epochs, threshold, complete, f2 in found.table:
+            print(f"  {epochs:3} epochs: threshold {threshold:.2f}, {complete}/{len(train_pages)} complete, F2 {f2:.3f}")
+        print(f"Kept: {found.epochs} epochs, threshold {found.threshold:.2f}")
+        settings = classifier.Settings(epochs=found.epochs)
+        averaged = classifier.ensemble(train_pages, embeddings, settings, pages, args.seeds)[found.epochs]
+        predictions = classifier.kept(averaged, found.threshold)
+        write_predictions(args.system, predictions, args.out)
+        print(table([score_system(args.system, pages, predictions)]))
     elif args.command == "export-app-samples":
         _, kept = read_predictions(args.predictions)
         universal_copy.write_samples(read_pages(args.pages), kept, args.out)

@@ -184,6 +184,52 @@ uv run python tools/train_lora.py -c configs/lora-3b.yaml
 uv run smart-select prompt --adapter adapters/ministral-3b --system "Ministral 3 3B, LoRA" --out data/open/predictions/ministral-3b-lora.json
 ```
 
+## A per-block classifier
+
+A small model that scores each block, article or not (`src/smart_select/classifier.py`):
+
+- **What a block says:** its text through
+  [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small), frozen: 384 numbers
+  a block, close for texts of the same kind in any of its 100 languages. The validation pages hold
+  Italian and Dutch, which the training pages do not.
+- **Where it sits:** its edges and width, its distance from the page's column (the left edge most
+  paragraphs share), its length and its place in the page.
+- **Its neighbours:** a bidirectional GRU reads the page's blocks in order, so that a short line is
+  judged by what is around it. 125,000 parameters on top of the encoder's 118 million.
+- **Training:** optional blocks do not count in the loss. The number of epochs and the threshold are
+  chosen by 5-fold cross-validation on the 103 training pages, the validation pages scored once.
+  Five models with different seeds are averaged.
+
+Embedding the 24,864 blocks of both sets takes a minute on the MacBook; training a model, seconds.
+
+| System | Complete pages | F2 | Article found | Precision |
+|---|---|---|---|---|
+| **Classifier** (threshold 0.05, from cross-validation) | **29/40** | 0.955 | 0.998 | 0.828 |
+| Classifier, in the app's rules | 20/40 | 0.942 | 0.972 | 0.859 |
+| 3B, LoRA | 15/40 | 0.950 | 0.946 | 0.970 |
+| Position rules alone | 22/40 | 0.896 | 0.971 | 0.716 |
+| Position rules with a perfect model | 22/40 | 0.972 | 0.970 | 0.985 |
+
+- The classifier completes the most pages of any system, by keeping what it is unsure of: the
+  cross-validation, which puts complete pages first, chose the lowest threshold tried.
+- The threshold trades complete pages for precision. On the validation pages, for illustration only
+  (these were not chosen by cross-validation):
+
+  | Threshold | 0.01 | 0.05 | 0.10 | 0.30 | 0.50 |
+  |---|---|---|---|---|---|
+  | Complete pages | 35/40 | 29/40 | 24/40 | 21/40 | 17/40 |
+  | F2 | 0.925 | 0.955 | 0.966 | 0.970 | 0.945 |
+  | Precision | 0.738 | 0.828 | 0.881 | 0.947 | 0.977 |
+
+  At about the rules' precision, it completes 35 pages to their 22; at 0.5, it matches the fine-tuned 3B
+  with a model about 30 times smaller, and no text to generate.
+- The app's rules make it worse: they drop article blocks it kept, outside the column.
+
+```sh
+uv sync --group classifier
+uv run smart-select classify --out data/open/predictions/classifier.json
+```
+
 ## Data
 
 The 25 pages above hold the full text of copyrighted articles: they stay private, and serve only as the
@@ -248,8 +294,8 @@ that sets the size of the models we can fine-tune.
 3. ✅ Capturing and labelling the open pages: 145 pages captured, 143 kept, 103 for training and 40 for
    validation; a sample of 25 checked by hand, and the rules fixed to match.
 4. ✅ Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
-5. Fine-tuning Ministral 3 with LoRA (✅ the 3B: 15/40 complete pages, F2 0.950), and training the
-   classifier.
+5. ✅ Fine-tuning Ministral 3 with LoRA (the 3B: 15/40 complete pages, F2 0.950), and training the
+   per-block classifier (29/40, F2 0.955).
 6. The benchmark: every approach on the private test set.
 7. Exporting the best model to the phone, or serving it in the cloud.
 

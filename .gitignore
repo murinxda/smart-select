@@ -28,3 +28,6 @@ data/raw-*/
 
 # Training examples, built from the labelled pages
 data/finetune/
+
+# The blocks' vectors for the classifier, computed from the pages
+data/classifier/
