@@ -1,0 +1,22 @@
+# Two more passes, from the end of lora-3b.yaml's run: its scores were still rising when it stopped.
+# The learning rate is constant, so this continues the same training. Checkpoints every 50 steps, and
+# the validation loss on the same 24 windows each time, so that checkpoints can be compared.
+model: mlx-community/Ministral-3-3B-Instruct-2512-8bit
+train: true
+data: data/finetune/fixed-valid
+resume_adapter_file: adapters/ministral-3b-final.safetensors
+fine_tune_type: lora
+mask_prompt: true
+num_layers: 16
+lora_parameters: {rank: 16, scale: 20.0, dropout: 0.05}
+batch_size: 1
+learning_rate: 1.0e-5
+iters: 1050
+steps_per_report: 20
+steps_per_eval: 100
+val_batches: -1
+save_every: 50
+max_seq_length: 4200
+grad_checkpoint: true
+adapter_path: adapters/ministral-3b-continued
+seed: 1

@@ -164,9 +164,12 @@ On the 40 validation pages:
 
 - Fine-tuning triples the complete pages and lifts F2 from 0.84 to 0.95, with precision from 0.89 to
   0.97. The fine-tuned model alone has the best F2 of every system but the perfect one.
-- The lowest validation loss (step 800) is not the best checkpoint: the scores kept rising to the end
-  of training, so a longer run may do better. The loss counts the answer's tokens; a page is complete
-  only when no block is missed.
+- The lowest validation loss (step 800) is not the best checkpoint: the loss counts the answer's
+  tokens, and a page is complete only when no block is missed.
+- Training longer does not help. Two more passes from the end of training
+  (`configs/lora-3b-continued.yaml`, its validation loss measured on the same 24 windows each time)
+  give 10/40 complete pages and F2 0.940 at the end, 9 to 10 pages at the checkpoints in between. The
+  pages lost mostly miss one block more; on one recipe, the ingredients.
 - The checkpoint was chosen on the same 40 pages it is scored on, among three: the private test set
   will give the unbiased score.
 - Of the 25 pages still incomplete, 8 miss only one or two blocks: on Global Voices, the intro
