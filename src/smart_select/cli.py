@@ -80,6 +80,8 @@ def main(argv: list[str] | None = None) -> None:
     classifies.add_argument("--pages", type=Path, default=Path("data/open/validation.jsonl"))
     classifies.add_argument("--cache", type=Path, default=Path("data/classifier/embeddings.npz"), help="where the blocks' vectors are kept")
     classifies.add_argument("--seeds", type=int, default=5, help="how many models to train and average")
+    classifies.add_argument("--epochs", type=int, help="with --threshold, skip the cross-validation and use these")
+    classifies.add_argument("--threshold", type=float, help="with --epochs, skip the cross-validation and use these")
     classifies.add_argument("--out", type=Path, required=True, help="the predictions file to write")
 
     exports = commands.add_parser("export-app-samples", help="write pages and a system's answers for Universal Copy's scoring test")
@@ -150,14 +152,17 @@ def main(argv: list[str] | None = None) -> None:
 
         train_pages, pages = read_pages(args.train), read_pages(args.pages)
         embeddings = classifier.Embeddings(args.cache)(train_pages + pages)
-        found = classifier.cross_validate(train_pages, embeddings, classifier.Settings(), args.seeds)
-        print(f"Cross-validation on {len(train_pages)} training pages:")
-        for epochs, threshold, complete, f2 in found.table:
-            print(f"  {epochs:3} epochs: threshold {threshold:.2f}, {complete}/{len(train_pages)} complete, F2 {f2:.3f}")
-        print(f"Kept: {found.epochs} epochs, threshold {found.threshold:.2f}")
-        settings = classifier.Settings(epochs=found.epochs)
-        averaged = classifier.ensemble(train_pages, embeddings, settings, pages, args.seeds)[found.epochs]
-        predictions = classifier.kept(averaged, found.threshold)
+        if args.epochs and args.threshold is not None:
+            epochs, threshold = args.epochs, args.threshold
+        else:
+            found = classifier.cross_validate(train_pages, embeddings, classifier.Settings(), args.seeds)
+            print(f"Cross-validation on {len(train_pages)} training pages:")
+            for row_epochs, row_threshold, complete, f2 in found.table:
+                print(f"  {row_epochs:3} epochs: threshold {row_threshold:.2f}, {complete}/{len(train_pages)} complete, F2 {f2:.3f}")
+            epochs, threshold = found.epochs, found.threshold
+            print(f"Kept: {epochs} epochs, threshold {threshold:.2f}")
+        averaged = classifier.ensemble(train_pages, embeddings, classifier.Settings(epochs=epochs), pages, args.seeds)[epochs]
+        predictions = classifier.kept(averaged, threshold)
         write_predictions(args.system, predictions, args.out)
         print(table([score_system(args.system, pages, predictions)]))
     elif args.command == "export-app-samples":

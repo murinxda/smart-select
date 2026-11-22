@@ -230,6 +230,54 @@ uv sync --group classifier
 uv run smart-select classify --out data/open/predictions/classifier.json
 ```
 
+## The benchmark
+
+Every approach on the 25 private test pages, the ones the app's numbers above come from. No choice
+was made on them: the classifier's two thresholds were set before (0.05 from cross-validation, 0.30
+as a balanced one), and the models are the ones scored on the validation pages, trained on the same
+103 pages.
+
+| System | Complete pages | F2 | Article found | Precision |
+|---|---|---|---|---|
+| Position rules with a perfect model | 21/25 | 0.982 | 0.983 | 0.984 |
+| **Gemini Nano in the rules (the app today)** | **19/25** | **0.917** | 0.961 | 0.840 |
+| Position rules alone | 20/25 | 0.799 | 0.937 | 0.604 |
+| 3B, prompted | 12/25 | 0.774 | 0.858 | 0.668 |
+| 3B, prompted, in the rules | 11/25 | 0.826 | 0.874 | 0.752 |
+| Classifier, threshold 0.05 | 11/25 | 0.726 | 0.923 | 0.562 |
+| Classifier, threshold 0.05, in the rules | 9/25 | 0.792 | 0.874 | 0.697 |
+| 3B, LoRA | 9/25 | 0.752 | 0.780 | 0.785 |
+| 3B, LoRA, in the rules | 9/25 | 0.782 | 0.788 | 0.804 |
+| Classifier, threshold 0.30 | 7/25 | 0.692 | 0.784 | 0.656 |
+
+**Nothing trained here beats the app.** The validation scores did not carry over: the classifier
+falls from 29/40 to 11/25, the fine-tuned 3B from 15/40 to 9/25, below the 3B without training.
+
+The test pages are another kind of page than the training ones:
+
+- **Commercial sites.** The open pages come from sites without ads (Wikipedia, Wikinews, Global
+  Voices, Wikivoyage, MDN, Wikibooks, Stack Overflow), as their license is what allows publishing them.
+  The test pages are news and recipe sites: product carousels, ad frames and their tracking links, menus
+  of sections, lists of other articles. The classifier keeps them, having never seen any; on a recipe
+  site it keeps 30 times more noise than article.
+- **Other layouts.** A live page's summary is indented as a list: the classifier, which learned to
+  trust the column, drops all of it.
+- **Single screens.** Most test pages are one screen, 63 blocks for 132 in training, with less
+  article in them.
+- **Older captures.** Captured on a phone before the capture tool, they split more sentences around
+  links: a third of their article blocks are under 20 characters, a fifth in training.
+
+The fine-tuning made the 3B a specialist of the training pages: it lost some of what it knew of the
+web at large. Gemini Nano, untrained for the task, was never specialised.
+
+Inside the rules, the models are given the same answers for both passes; Gemini Nano was asked the
+app's own prompts, the second time only about the column.
+
+**What would fix it:** training pages from the sites people read, ads included. Their license keeps
+them out of a public dataset, but not out of training: new labelled captures of commercial sites,
+other than the 25 test pages, can train the models without being published, with the open pages kept
+for the public results.
+
 ## Data
 
 The 25 pages above hold the full text of copyrighted articles: they stay private, and serve only as the
@@ -296,7 +344,8 @@ that sets the size of the models we can fine-tune.
 4. ✅ Prompting Ministral 3 without fine-tuning, to measure what fine-tuning adds.
 5. ✅ Fine-tuning Ministral 3 with LoRA (the 3B: 15/40 complete pages, F2 0.950), and training the
    per-block classifier (29/40, F2 0.955).
-6. The benchmark: every approach on the private test set.
+6. ✅ The benchmark: every approach on the private test set. None beats the app: the training pages,
+   from sites without ads, do not prepare the models for commercial sites.
 7. Exporting the best model to the phone, or serving it in the cloud.
 
 ## License
