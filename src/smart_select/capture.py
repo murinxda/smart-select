@@ -43,10 +43,16 @@ ACCEPT = [
     "Accepter", "Accepter et continuer", "Accept all", "Tout accepter", "J'accepte", "Accept", "Aceptar",
     "Accept and continue", "I agree", "Agree", "Agree and close", "ACCEPT AND CONTINUE", "Accepter & Fermer",
     "I Accept All", "Yes, I agree", "ACCEPTER LES COOKIES", "Accepter tout", "Tout accepter et continuer",
-    "Alle akzeptieren", "Aceptar todo", "Aceitar",
+    "Alle akzeptieren", "Aceptar todo", "Aceitar", "Accepter tous les cookies", "Oui, j'accepte", "Oui, j’accepte",
+    "Allow all", "I ACCEPT", "Aceptar y cerrar", "Acepta y accede a EL MUNDO",
 ]
-ACCEPT_PREFIXES = ("j'accepte", "accept ", "tout accepter", "i accept", "agree")
-DISMISS = ["No thanks", "Not now", "No, thanks", "Close", "Fermer", "Use without an account", "Stay signed out"]
+# Lower case, and the apostrophe both ways: some buttons add what they do after their name, as in
+# "Accepter et fermer: Accepter notre traitement des données et fermer"
+ACCEPT_PREFIXES = ("j'accepte", "j’accepte", "accept ", "tout accepter", "i accept", "agree", "accepter et fermer",
+                   "accepter tous", "oui, j'accepte", "oui, j’accepte", "allow all", "aceptar y ",
+                   "acepta y ")
+DISMISS = ["No thanks", "Not now", "No, thanks", "Close", "Fermer", "Use without an account", "Stay signed out",
+           "Fermer la fenêtre modale"]
 # Sites without cookie walls or popups: one check is enough
 QUIET_SITES = ("wikipedia.org", "wikivoyage.org", "wikinews.org", "wikibooks.org")
 
@@ -300,12 +306,28 @@ def handle_popups(device: Device) -> bool:
     found = next((node for node in nodes if node.label in ACCEPT), None) or next(
         (node for node in nodes if len(node.label) < 80 and node.label.lower() != "accepted"
          and node.label.lower().startswith(ACCEPT_PREFIXES)), None)
-    found = found or next((node for node in nodes if node.text in DISMISS or node.description in DISMISS), None)
+    # In any case: "No thanks", "No, Thanks"
+    dismiss = {name.lower() for name in DISMISS}
+    found = found or next((node for node in nodes if node.text.lower() in dismiss or node.description.lower() in dismiss), None)
     if found:
         print(f"  tap: {found.label}")
         device.tap(found.bounds)
         time.sleep(1.5)
     return found is not None
+
+
+def handle_all_popups(device: Device, quiet: bool = False, checks: int = 6, wait: float = 3.0) -> None:
+    """Consent walls often show up seconds after the page, some more than 15 seconds later on a slow
+    page, and several popups can follow one another: checks until a check after a tap finds nothing,
+    or ``checks`` times, ``wait`` seconds apart. Once on sites known to have none."""
+    tapped = False
+    for attempt in range(1 if quiet else checks):
+        if handle_popups(device):
+            tapped = True
+        elif tapped:
+            return
+        elif attempt < checks - 1 and not quiet:
+            time.sleep(wait)
 
 
 def capture(device: Device, page_id: str, url: str, out: Path, source: dict[str, str], max_swipes: int = 40,
@@ -321,13 +343,7 @@ def capture(device: Device, page_id: str, url: str, out: Path, source: dict[str,
                  "-e", "com.android.browser.application_id", "smart-select", "com.android.chrome")
     loaded = wait_for_text(device)
     timer.lap("load")
-    # Consent dialogs often show up a few seconds after the page: check again, except on sites
-    # known to have none. Several popups can follow one another.
-    for attempt in range(1 if any(site in url for site in QUIET_SITES) else 3):
-        if not handle_popups(device) and attempt > 0:
-            break
-        if attempt == 0 and not any(site in url for site in QUIET_SITES):
-            time.sleep(2)
+    handle_all_popups(device, quiet=any(site in url for site in QUIET_SITES))
     timer.lap("popups")
     # Copy mode reads whatever is in front: anything but the page would make a wrong capture
     if not loaded or "com.android.chrome" not in device.focus():
@@ -362,7 +378,7 @@ def wait_until(condition: Callable[[], object], timeout: float, interval: float 
     return False
 
 
-def wait_for_text(device: Device, timeout: float = 60, enough: int = 15) -> bool:
+def wait_for_text(device: Device, timeout: float = 90, enough: int = 15) -> bool:
     """Waits until the screen shows some text: a page still loading would give an empty capture."""
     return wait_until(lambda: sum(1 for node in device.nodes() if len(node.label) > 3) >= enough, timeout, interval=0.5)
 
