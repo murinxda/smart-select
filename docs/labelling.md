@@ -62,6 +62,39 @@ Each block is labelled for itself, repeats included:
   vote counts, user cards, "asked/edited" lines and comments are `optional`; the sidebar, hot network
   questions, related questions and the cookie banner are `noise`.
 
+## Commercial sites (private training pages)
+
+News, tech and recipe sites that live on ads, captured in Chrome with their cookie wall accepted. The
+rules above still apply; these pages add:
+
+- **Ads and sponsored content are `noise`**, wherever they are: "Advertisement", "Sponsor Message",
+  "Annonce", ad networks' links and file names (`googleads…`, `trc.taboola.com/…`, `amt?ias_…`), product
+  carousels and shopping cards ("Available at Amazon", prices, "Buy now"), sponsored links and "You may
+  like" grids (Taboola, Outbrain), and the text of an ad inside the article.
+- **Subscription, donation and app prompts are `noise`:** "Subscribe", offers and prices of a
+  subscription, "This free press is powered by you… Donate", "Read in the app", "Add … on Google",
+  newsletter sign-up boxes and push-notification prompts.
+- **Consent banners are `noise`**, with all their text, when the capture still holds one.
+- **Audio and video players are `noise`:** "Listen to this article", "36-Minute Listen", play, mute,
+  full screen, a live stream bar ("On Air Now").
+- **"Read also" links inside the body are `noise`**, like related articles after it; so are the
+  comment count, comments, and readers' reviews of a recipe.
+- **A live page's posts** (time and text) follow the test set: the key facts box and the posts are
+  `optional`, the posts' times too.
+- **Recipes:** title, introduction, ingredients, equipment, steps and the author's tips are `article`;
+  the rating, number of reviews, times, difficulty, cost, servings and nutrition facts are `optional`;
+  readers' reviews and photos, "Jump to recipe", "Print" and "Save" buttons are `noise`.
+- **The section label above the headline is `noise`** ("POLITICS", "EXCLUSIVE", "ANALYSIS", a site's
+  tagline above its title), as in the test set.
+- **Embedded posts** (X, Instagram, TikTok): the post's text is `optional`, as on Global Voices; the
+  account, buttons, counts and the embed's own cookie prompts are `noise`.
+- **The author's box after the article** is `optional`, like the byline. A recipe's or an article's
+  "Frequently asked questions", written by the site in the article's column, is `article`.
+- **A page that loads the next article below** (infinite scroll): everything from the next article
+  on is `noise`.
+- **Reviews (tech):** the verdict, score, pros and cons are `article`: they are part of the review.
+  Product cards with prices and "Buy" links are `noise`.
+
 ## Labelled by rules
 
 Q&A and docs pages run to 300 to 800 blocks, with the same structure on every page of a site. Their

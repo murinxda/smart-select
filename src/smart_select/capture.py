@@ -48,7 +48,7 @@ ACCEPT = [
 ]
 # Lower case, and the apostrophe both ways: some buttons add what they do after their name, as in
 # "Accepter et fermer: Accepter notre traitement des données et fermer"
-ACCEPT_PREFIXES = ("j'accepte", "j’accepte", "accept ", "tout accepter", "i accept", "agree", "accepter et fermer",
+ACCEPT_PREFIXES = ("j'accepte", "j’accepte", "accept ", "tout accepter", "i accept", "agree ", "accepter et fermer",
                    "accepter tous", "oui, j'accepte", "oui, j’accepte", "allow all", "aceptar y ",
                    "acepta y ")
 DISMISS = ["No thanks", "Not now", "No, thanks", "Close", "Fermer", "Use without an account", "Stay signed out",
@@ -142,9 +142,20 @@ class Device:
         A drag, not a swipe: the finger stops before it lifts, so the page does not fling on. It
         stops sooner, and always moves by the same distance, which keeps an overlap between screens."""
         end = max(y - 1400, 400)
-        steps = [y - (y - end) * k // 4 for k in range(1, 5)] + [end]
-        moves = "; ".join(f"input motionevent MOVE {x} {step}" for step in steps)
-        self.shell(raw=f"input motionevent DOWN {x} {y}; {moves}; sleep 0.15; input motionevent UP {x} {end}")
+        # Through the emulator's console, not "input motionevent": each "input" starts a Java process on
+        # the device, a few tenths of a second on a busy emulator, and a finger down that long before
+        # it moves is a long press: Chrome opens the link's menu, or the ad, under the finger
+        self.touch(x, y, down=True)
+        for k in range(1, 9):
+            self.touch(x, y - (y - end) * k // 8, down=True)
+        time.sleep(0.15)
+        self.touch(x, end, down=False)
+
+    def touch(self, x: int, y: int, down: bool) -> None:
+        """A finger on the touch screen at (x, y) in pixels, or lifted there: an emulator console
+        event, about 25 ms from the Mac."""
+        subprocess.run(self.adb + ["emu", "event", "mouse", str(x), str(y), "0", "1" if down else "0"],
+                       capture_output=True, timeout=10)
 
     def page_hash(self) -> tuple[str, str]:
         """Hashes of a band at the top and one at the bottom of the page on screen, below harvest
@@ -308,7 +319,17 @@ def handle_popups(device: Device) -> bool:
          and node.label.lower().startswith(ACCEPT_PREFIXES)), None)
     # In any case: "No thanks", "No, Thanks"
     dismiss = {name.lower() for name in DISMISS}
-    found = found or next((node for node in nodes if node.text.lower() in dismiss or node.description.lower() in dismiss), None)
+    # Only a button on screen: a page's own "Close" further down is not a popup
+    found = found or next((node for node in nodes if (node.text.lower() in dismiss or node.description.lower() in dismiss)
+                           and node.bounds[3] > node.bounds[1]), None)
+    if found and found.bounds[3] <= found.bounds[1]:
+        # Below the screen in a dialog that scrolls (NPR's "Accept All"): drag the dialog up once, and
+        # tap the button if it shows; a tap on its empty bounds would do nothing
+        print(f"  scroll to: {found.label}")
+        device.swipe_up(540, 1700)
+        time.sleep(1)
+        found = next((node for node in device.nodes() if node.label == found.label
+                      and node.bounds[3] > node.bounds[1]), None)
     if found:
         print(f"  tap: {found.label}")
         device.tap(found.bounds)
